@@ -1,11 +1,7 @@
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
-// This is a shortened version of the gain example with most comments removed, check out
-// https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/gain/src/lib.rs to get
-// started
-
-struct Distortion {
+pub struct Distortion {
     params: Arc<DistortionParams>,
 }
 
@@ -15,8 +11,17 @@ struct DistortionParams {
     /// these IDs remain constant, you can rename and reorder these fields as you wish. The
     /// parameters are exposed to the host in the same order they were defined. In this case, this
     /// gain parameter is stored as linear gain while the values are displayed in decibels.
-    #[id = "gain"]
-    pub gain: FloatParam,
+    #[id = "input-gain"]
+    pub input_gain: FloatParam,
+
+    #[id = "output-gain"]
+    pub output_gain: FloatParam,
+
+    #[id = "dry-wet"]
+    pub dry_wet_ratio: FloatParam,
+
+    #[id = "saturation"]
+    pub saturation: FloatParam,
 }
 
 impl Default for Distortion {
@@ -33,8 +38,8 @@ impl Default for DistortionParams {
             // This gain is stored as linear gain. NIH-plug comes with useful conversion functions
             // to treat these kinds of parameters as if we were dealing with decibels. Storing this
             // as decibels is easier to work with, but requires a conversion for every sample.
-            gain: FloatParam::new(
-                "Gain",
+            input_gain: FloatParam::new(
+                "Input Gain",
                 util::db_to_gain(0.0),
                 FloatRange::Skewed {
                     min: util::db_to_gain(-30.0),
@@ -48,11 +53,41 @@ impl Default for DistortionParams {
             // decibels, we need logarithmic smoothing
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_unit(" dB")
-            // There are many predefined formatters we can use here. If the gain was stored as
-            // decibels instead of as a linear gain value, we could have also used the
-            // `.with_step_size(0.1)` function to get internal rounding.
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+
+            output_gain: FloatParam::new(
+                "Output Gain",
+                util::db_to_gain(0.0),
+                FloatRange::Skewed {
+                    min: util::db_to_gain(-30.0),
+                    max: util::db_to_gain(30.0),
+                    factor: FloatRange::gain_skew_factor(-30.0, 30.0),
+                },
+            )
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
+            .with_unit(" dB")
+            .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
+            .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+
+            saturation: FloatParam::new(
+                "Saturation",
+                0.5,
+                FloatRange::Linear {
+                    min: 0.0,
+                    max: 0.999,
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            dry_wet_ratio: FloatParam::new(
+                "Dry/wet",
+                0.5,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_smoother(SmoothingStyle::Linear(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
         }
     }
 }
@@ -114,11 +149,24 @@ impl Plugin for Distortion {
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         for channel_samples in buffer.iter_samples() {
-            // Smoothing is optionally built into the parameters themselves
-            let gain = self.params.gain.smoothed.next();
+            let input_gain = self.params.input_gain.smoothed.next();
+            let output_gain = self.params.output_gain.smoothed.next();
+            let a = self.params.saturation.smoothed.next();
+            let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
 
             for sample in channel_samples {
-                *sample *= gain;
+                // Apply input gain
+                *sample *= input_gain;
+
+                // Apply saturation
+                let k = 2.0 * a / (1.0 - a);
+                let wet = ((1.0 + k) * *sample) / (1.0 + k * (*sample).abs());
+
+                // Apply dry/wet
+                *sample = (*sample * (1.0 - dry_wet_ratio)) + (wet * dry_wet_ratio);
+
+                // Apply output gain
+                *sample *= output_gain;
             }
         }
 
@@ -128,12 +176,19 @@ impl Plugin for Distortion {
 
 impl ClapPlugin for Distortion {
     const CLAP_ID: &'static str = "com.your-domain.distortion";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("Algorithms of nonlinear systems for distortion effects");
+    const CLAP_DESCRIPTION: Option<&'static str> =
+        Some("Algorithms of nonlinear systems for distortion effects");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
 
     // Don't forget to change these features
-    const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Stereo];
+    const CLAP_FEATURES: &'static [ClapFeature] = &[
+        ClapFeature::AudioEffect,
+        ClapFeature::Stereo,
+        ClapFeature::Mono,
+        ClapFeature::Utility,
+        ClapFeature::Distortion,
+    ];
 }
 
 impl Vst3Plugin for Distortion {
@@ -141,7 +196,7 @@ impl Vst3Plugin for Distortion {
 
     // And don't forget to change these categories, see the docstring on `VST3_CATEGORIES` for more
     // information
-    const VST3_CATEGORIES: &'static str = "Fx|Dynamics";
+    const VST3_CATEGORIES: &'static str = "Fx|Distortion";
 }
 
 nih_export_clap!(Distortion);
