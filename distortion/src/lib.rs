@@ -222,12 +222,22 @@ impl Plugin for Distortion {
                     DistortionType::HalfWaveRectifier => {
                         if *sample < 0. { 0. } else { *sample }
                     },
+                    DistortionType::ShockleyDiodeRectifier => {
+                        // TODO: implement
+                        *sample
+                    },
+                    DistortionType::Dropout => {
+                        // TODO: implement
+                        *sample
+                    },
+                    DistortionType::DoubleSoftClipper => {
+                        // TODO: implement
+                        *sample
+                    },
                     DistortionType::Wavefolding => {
-                        // TODO: multiply input by drive parameter before sin
                         let k = 1. + (a * 4.);
                         (k * *sample).sin()
-                    }
-                    _ => *sample
+                    },
                 };
 
                 // Apply dry/wet
