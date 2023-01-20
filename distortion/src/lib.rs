@@ -5,6 +5,41 @@ pub struct Distortion {
     params: Arc<DistortionParams>,
 }
 
+#[derive(Enum, Debug, PartialEq, Eq)]
+enum DistortionType {
+    #[id = "soft-clipping"]
+    #[name = "Soft clipping"]
+    SoftClipping,
+
+    #[id = "hard-clipping"]
+    #[name = "Hard clipping"]
+    HardClipping,
+
+    #[id = "full-wave-rectifier"]
+    #[name = "Full wave rectifier"]
+    FullWaveRectifier,
+
+    #[id = "half-wave-rectifier"]
+    #[name = "Half wave rectifier"]
+    HalfWaveRectifier,
+
+    #[id = "shockley-diode-rectifier"]
+    #[name = "Shockley diode rectifier"]
+    ShockleyDiodeRectifier,
+
+    #[id = "dropout"]
+    #[name = "Dropout"]
+    Dropout,
+
+    #[id = "double-soft-clipper"]
+    #[name = "Double soft clipper"]
+    DoubleSoftClipper,
+    
+    #[id = "wavefolding"]
+    #[name = "SineWavefolding"]
+    Wavefolding,
+}
+
 #[derive(Params)]
 struct DistortionParams {
     /// The parameter's ID is used to identify the parameter in the wrappred plugin API. As long as
@@ -20,8 +55,11 @@ struct DistortionParams {
     #[id = "dry-wet"]
     pub dry_wet_ratio: FloatParam,
 
-    #[id = "saturation"]
-    pub saturation: FloatParam,
+    #[id = "drive"]
+    pub drive: FloatParam,
+
+    #[id = "distortion-type"]
+    pub distortion_type: EnumParam<DistortionType>,
 }
 
 impl Default for Distortion {
@@ -70,7 +108,7 @@ impl Default for DistortionParams {
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
 
-            saturation: FloatParam::new(
+            drive: FloatParam::new(
                 "Saturation",
                 0.5,
                 FloatRange::Linear {
@@ -88,6 +126,8 @@ impl Default for DistortionParams {
             )
             .with_smoother(SmoothingStyle::Linear(50.0))
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            distortion_type: EnumParam::new("Type", DistortionType::SoftClipping),
         }
     }
 }
@@ -151,16 +191,44 @@ impl Plugin for Distortion {
         for channel_samples in buffer.iter_samples() {
             let input_gain = self.params.input_gain.smoothed.next();
             let output_gain = self.params.output_gain.smoothed.next();
-            let a = self.params.saturation.smoothed.next();
+            let a = self.params.drive.smoothed.next();
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
+            let distortion_type = self.params.distortion_type.value();
 
             for sample in channel_samples {
                 // Apply input gain
                 *sample *= input_gain;
 
-                // Apply saturation
-                let k = 2.0 * a / (1.0 - a);
-                let wet = ((1.0 + k) * *sample) / (1.0 + k * (*sample).abs());
+                // Apply distortion
+                let wet = match distortion_type {
+                    // https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html
+                    DistortionType::SoftClipping => {
+                        let k = 2.0 * a / (1.0 - a);
+                        ((1.0 + k) * *sample) / (1.0 + k * (*sample).abs())
+                    },
+                    DistortionType::HardClipping => {
+                        let threshold = 1.;
+                        if *sample > threshold {
+                            threshold
+                        } else if *sample < -threshold {
+                            -threshold
+                        } else {
+                            *sample
+                        }
+                    },
+                    DistortionType::FullWaveRectifier => {
+                        (*sample).abs()
+                    },
+                    DistortionType::HalfWaveRectifier => {
+                        if *sample < 0. { 0. } else { *sample }
+                    },
+                    DistortionType::Wavefolding => {
+                        // TODO: multiply input by drive parameter before sin
+                        let k = 1. + (a * 4.);
+                        (k * *sample).sin()
+                    }
+                    _ => *sample
+                };
 
                 // Apply dry/wet
                 *sample = (*sample * (1.0 - dry_wet_ratio)) + (wet * dry_wet_ratio);

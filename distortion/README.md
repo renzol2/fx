@@ -12,8 +12,12 @@ A collection of nonlinear waveshaping algorithms for distortion effects.
 Additional parameters:
 
 - [ ] Input/output gain
-- [ ] Dry/wet mix
+- [ ] Mixing of multiple distortion types into one signal (like AnalogObsession's COMPER and its compressor emulations)
 - [ ] Pre- and post- filtering (Signalsmith)
+
+DSP related features:
+
+- [ ] Oversampling
 
 ## Building
 
