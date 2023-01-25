@@ -1,5 +1,5 @@
 use nih_plug::prelude::*;
-use std::sync::Arc;
+use std::{sync::Arc, f32::consts::PI};
 
 pub struct Distortion {
     params: Arc<DistortionParams>,
@@ -236,7 +236,8 @@ impl Plugin for Distortion {
                     },
                     DistortionType::Wavefolding => {
                         let k = 1. + (a * 4.);
-                        (k * *sample).sin()
+                        // TODO: test this formula
+                        (2. * PI * k * *sample).sin()
                     },
                 };
 

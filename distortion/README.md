@@ -2,7 +2,7 @@
 
 A collection of nonlinear waveshaping algorithms for distortion effects.
 
-- [ ] Soft clipping
+- [ ] Soft clipping ([musicdsp](https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html))
 - [ ] Hard clipping
 - [ ] Rectifier (Chowdhury)
 - [ ] Dropout (Chowdhury)
