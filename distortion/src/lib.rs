@@ -1,5 +1,5 @@
 use nih_plug::prelude::*;
-use std::{sync::Arc, f32::consts::PI};
+use std::{sync::Arc, f32::consts::{PI, E}};
 
 pub struct Distortion {
     params: Arc<DistortionParams>,
@@ -19,9 +19,7 @@ enum DistortionType {
     #[name = "Full wave rectifier"]
     FullWaveRectifier,
 
-    #[id = "half-wave-rectifier"]
-    #[name = "Half wave rectifier"]
-    HalfWaveRectifier,
+    #[id = "half-wave-rectifier"] #[name = "Half wave rectifier"] HalfWaveRectifier,
 
     #[id = "shockley-diode-rectifier"]
     #[name = "Shockley diode rectifier"]
@@ -36,7 +34,7 @@ enum DistortionType {
     DoubleSoftClipper,
     
     #[id = "wavefolding"]
-    #[name = "SineWavefolding"]
+    #[name = "Wavefolding"]
     Wavefolding,
 }
 
@@ -223,8 +221,9 @@ impl Plugin for Distortion {
                         if *sample < 0. { 0. } else { *sample }
                     },
                     DistortionType::ShockleyDiodeRectifier => {
-                        // TODO: implement
-                        *sample
+                        // Based off Chowdhury's Shockley Diode rectifier approximation:
+                        // https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
+                        (0.4 * a + 0.1) * ( E.powf((8. * a + 2.) * *sample) - 1. )
                     },
                     DistortionType::Dropout => {
                         // TODO: implement
@@ -236,7 +235,6 @@ impl Plugin for Distortion {
                     },
                     DistortionType::Wavefolding => {
                         let k = 1. + (a * 4.);
-                        // TODO: test this formula
                         (2. * PI * k * *sample).sin()
                     },
                 };
