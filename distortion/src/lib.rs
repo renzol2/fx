@@ -137,10 +137,51 @@ impl Default for DistortionParams {
 
 // TODO: refactor all distortion algorithms here
 impl Distortion {
+    /// Processes an input sample through a static, saturating waveshaper.
+    /// Drive parameter increases the saturation.
+    /// 
+    /// Source: https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html
     fn get_soft_clip_output(drive: f32, input_sample: f32) -> f32 {
-        // https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html
         let k = 2.0 * drive / (1.0 - drive);
         ((1.0 + k) * input_sample) / (1.0 + k * (input_sample).abs())
+    }
+
+    fn cubic_waveshaper(x: f32) -> f32 {
+        (0.75) * (x - x.powi(3) / 3.)
+    }
+
+    fn lower_waveshaper(x: f32, lower_skew_param: f32) -> f32 {
+        let b = lower_skew_param;
+        let b_recip = 1. / b;
+        if x < -b_recip {
+            -(0.5)
+        } else if x > b_recip {
+            0.5
+        } else {
+            Self::cubic_waveshaper(lower_skew_param * x)
+        }
+    }
+
+    /// Processes an input sample through a double soft clipper waveshaper algorithm.
+    /// The drive parameter changes the upper limit of positive inputs and the skew of negative inputs.
+    /// 
+    /// Based off Chowdhury's double soft clipper:
+    /// https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
+    /// Desmos visualization of parameterization: https://www.desmos.com/calculator/bplxqizjbe
+    fn get_double_soft_clipper_output(drive: f32, input_sample: f32) -> f32 {
+        let x = input_sample;
+        let upper_limit_param = 1. - 0.6 * drive;  
+        let lower_skew_param = 2. * drive + 1.;
+        if -1. <= x && x <= 0. {
+            Self::lower_waveshaper(2. * x + 1., lower_skew_param) - 0.5
+        } else if 0. < x && x <= 1. {
+            upper_limit_param * (Self::cubic_waveshaper(2. * x - 1.) + 0.5) 
+        } else if x < -1. {
+            -1.
+        } else {
+            1.
+        }
+        
     }
 }
 
@@ -244,6 +285,7 @@ impl Plugin for Distortion {
                     DistortionType::Dropout => {
                         // Based off Chowdhury's Dropout equation:
                         // https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
+                        // Desmos visualization of parameterization: https://www.desmos.com/calculator/2dmj6p7yvk
                         if drive == 0. {
                             *sample
                         } else {
@@ -259,28 +301,7 @@ impl Plugin for Distortion {
                         }
                     }
                     DistortionType::DoubleSoftClipper => {
-                        // FIXME: this sounds really, really loud
-                        // Based off Chowdhury's double soft clipper:
-                        // https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
-                        let x = *sample;
-                        let u = if x > 0. {
-                            x - 0.5
-                        } else if x < 0. {
-                            x + 0.5
-                        } else {
-                            0.
-                        };
-                        if u >= 1. {
-                            1.
-                        } else if 0. < u && u < 1. {
-                            0.75 * (u - u.powi(3) / 3.) + 0.5
-                        } else if -1. < u && u < 0. {
-                            0.75 * (u - u.powi(3) / 3.) - 0.5
-                        } else if u <= -1. {
-                            -1.
-                        } else {
-                            0.
-                        }
+                        Distortion::get_double_soft_clipper_output(drive, *sample)
                     }
                     DistortionType::Wavefolding => {
                         let k = 1. + (drive * 4.);
@@ -301,7 +322,7 @@ impl Plugin for Distortion {
 }
 
 impl ClapPlugin for Distortion {
-    const CLAP_ID: &'static str = "com.your-domain.distortion";
+    const CLAP_ID: &'static str = "https://renzomledesma.me";
     const CLAP_DESCRIPTION: Option<&'static str> =
         Some("Algorithms of nonlinear systems for distortion effects");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
