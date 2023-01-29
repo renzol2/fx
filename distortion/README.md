@@ -2,12 +2,12 @@
 
 A collection of nonlinear waveshaping algorithms for distortion effects.
 
-- [ ] Soft clipping ([musicdsp](https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html))
-- [ ] Hard clipping
-- [ ] Rectifier (Chowdhury)
-- [ ] Dropout (Chowdhury)
+- [x] Soft clipping ([musicdsp](https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html))
+- [x] Hard clipping
+- [x] Rectifier (Chowdhury)
+- [x] Dropout (Chowdhury)
 - [ ] Double soft clipper (Chowdhury)
-- [ ] Wavefolding (Chowdhury)
+- [x] Wavefolding (Chowdhury)
 
 Additional parameters:
 

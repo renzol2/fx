@@ -1,5 +1,8 @@
 use nih_plug::prelude::*;
-use std::{sync::Arc, f32::consts::{PI, E}};
+use std::{
+    f32::consts::{E, PI},
+    sync::Arc,
+};
 
 pub struct Distortion {
     params: Arc<DistortionParams>,
@@ -19,7 +22,9 @@ enum DistortionType {
     #[name = "Full wave rectifier"]
     FullWaveRectifier,
 
-    #[id = "half-wave-rectifier"] #[name = "Half wave rectifier"] HalfWaveRectifier,
+    #[id = "half-wave-rectifier"]
+    #[name = "Half wave rectifier"]
+    HalfWaveRectifier,
 
     #[id = "shockley-diode-rectifier"]
     #[name = "Shockley diode rectifier"]
@@ -32,7 +37,7 @@ enum DistortionType {
     #[id = "double-soft-clipper"]
     #[name = "Double soft clipper"]
     DoubleSoftClipper,
-    
+
     #[id = "wavefolding"]
     #[name = "Wavefolding"]
     Wavefolding,
@@ -107,7 +112,7 @@ impl Default for DistortionParams {
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
 
             drive: FloatParam::new(
-                "Saturation",
+                "Drive",
                 0.5,
                 FloatRange::Linear {
                     min: 0.0,
@@ -131,7 +136,7 @@ impl Default for DistortionParams {
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion";
+    const NAME: &'static str = "Distortion v0.1.1";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -189,7 +194,7 @@ impl Plugin for Distortion {
         for channel_samples in buffer.iter_samples() {
             let input_gain = self.params.input_gain.smoothed.next();
             let output_gain = self.params.output_gain.smoothed.next();
-            let a = self.params.drive.smoothed.next();
+            let drive = self.params.drive.smoothed.next();
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
             let distortion_type = self.params.distortion_type.value();
 
@@ -199,13 +204,14 @@ impl Plugin for Distortion {
 
                 // Apply distortion
                 let wet = match distortion_type {
-                    // https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html
                     DistortionType::SoftClipping => {
-                        let k = 2.0 * a / (1.0 - a);
+                        // https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html
+                        let k = 2.0 * drive / (1.0 - drive);
                         ((1.0 + k) * *sample) / (1.0 + k * (*sample).abs())
-                    },
+                    }
                     DistortionType::HardClipping => {
-                        let threshold = 1.;
+                        // Desmos visualization of parameterization: https://www.desmos.com/calculator/tbfrqrmmvo
+                        let threshold = 1. - 0.4 * drive;
                         if *sample > threshold {
                             threshold
                         } else if *sample < -threshold {
@@ -213,30 +219,66 @@ impl Plugin for Distortion {
                         } else {
                             *sample
                         }
-                    },
-                    DistortionType::FullWaveRectifier => {
-                        (*sample).abs()
-                    },
+                    }
+                    DistortionType::FullWaveRectifier => (*sample).abs(),
                     DistortionType::HalfWaveRectifier => {
-                        if *sample < 0. { 0. } else { *sample }
-                    },
+                        if *sample < 0. {
+                            0.
+                        } else {
+                            *sample
+                        }
+                    }
                     DistortionType::ShockleyDiodeRectifier => {
                         // Based off Chowdhury's Shockley Diode rectifier approximation:
                         // https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
-                        (0.4 * a + 0.1) * ( E.powf((8. * a + 2.) * *sample) - 1. )
-                    },
+                        // Desmos visualization of parameterization: https://www.desmos.com/calculator/r7gyt947xh
+                        (0.4 * drive + 0.1) * (E.powf((8. * drive + 2.) * *sample) - 1.)
+                    }
                     DistortionType::Dropout => {
-                        // TODO: implement
-                        *sample
-                    },
+                        // Based off Chowdhury's Dropout equation:
+                        // https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
+                        if drive == 0. {
+                            *sample
+                        } else {
+                            let b = f32::sqrt(drive.powi(3) / 3.);
+                            let x = *sample;
+                            if x < -b {
+                                x + b - (b / drive).powi(3)
+                            } else if -b <= x && x <= b {
+                                (x / drive).powi(3)
+                            } else {
+                                x - b + (b / drive).powi(3)
+                            }
+                        }
+                    }
                     DistortionType::DoubleSoftClipper => {
-                        // TODO: implement
-                        *sample
-                    },
+                        // FIXME: this sounds really, really loud
+                        // Based off Chowdhury's double soft clipper:
+                        // https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
+                        let x = *sample;
+                        let u = if x > 0. {
+                            x - 0.5
+                        } else if x < 0. {
+                            x + 0.5
+                        } else {
+                            0.
+                        };
+                        if u >= 1. {
+                            1.
+                        } else if 0. < u && u < 1. {
+                            0.75 * (u - u.powi(3) / 3.) + 0.5
+                        } else if -1. < u && u < 0. {
+                            0.75 * (u - u.powi(3) / 3.) - 0.5
+                        } else if u <= -1. {
+                            -1.
+                        } else {
+                            0.
+                        }
+                    }
                     DistortionType::Wavefolding => {
-                        let k = 1. + (a * 4.);
+                        let k = 1. + (drive * 4.);
                         (2. * PI * k * *sample).sin()
-                    },
+                    }
                 };
 
                 // Apply dry/wet
