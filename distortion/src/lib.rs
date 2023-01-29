@@ -135,6 +135,15 @@ impl Default for DistortionParams {
     }
 }
 
+// TODO: refactor all distortion algorithms here
+impl Distortion {
+    fn get_soft_clip_output(drive: f32, input_sample: f32) -> f32 {
+        // https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html
+        let k = 2.0 * drive / (1.0 - drive);
+        ((1.0 + k) * input_sample) / (1.0 + k * (input_sample).abs())
+    }
+}
+
 impl Plugin for Distortion {
     const NAME: &'static str = "Distortion v0.1.1";
     const VENDOR: &'static str = "Renzo Ledesma";
@@ -205,9 +214,7 @@ impl Plugin for Distortion {
                 // Apply distortion
                 let wet = match distortion_type {
                     DistortionType::SoftClipping => {
-                        // https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html
-                        let k = 2.0 * drive / (1.0 - drive);
-                        ((1.0 + k) * *sample) / (1.0 + k * (*sample).abs())
+                        Distortion::get_soft_clip_output(drive, *sample)
                     }
                     DistortionType::HardClipping => {
                         // Desmos visualization of parameterization: https://www.desmos.com/calculator/tbfrqrmmvo
@@ -316,6 +323,16 @@ impl Vst3Plugin for Distortion {
     // And don't forget to change these categories, see the docstring on `VST3_CATEGORIES` for more
     // information
     const VST3_CATEGORIES: &'static str = "Fx|Distortion";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn soft_clip_returns_correct_dc_offset() {
+        assert_eq!(Distortion::get_soft_clip_output(0., 0.), 0.);
+    }
 }
 
 nih_export_clap!(Distortion);
