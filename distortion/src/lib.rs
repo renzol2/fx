@@ -139,7 +139,7 @@ impl Default for DistortionParams {
 impl Distortion {
     /// Processes an input sample through a static, saturating waveshaper.
     /// Drive parameter increases the saturation.
-    /// 
+    ///
     /// Source: https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html
     fn get_soft_clip_output(drive: f32, input_sample: f32) -> f32 {
         let k = 2.0 * drive / (1.0 - drive);
@@ -164,29 +164,28 @@ impl Distortion {
 
     /// Processes an input sample through a double soft clipper waveshaper algorithm.
     /// The drive parameter changes the upper limit of positive inputs and the skew of negative inputs.
-    /// 
+    ///
     /// Based off Chowdhury's double soft clipper:
     /// https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
     /// Desmos visualization of parameterization: https://www.desmos.com/calculator/bplxqizjbe
     fn get_double_soft_clipper_output(drive: f32, input_sample: f32) -> f32 {
         let x = input_sample;
-        let upper_limit_param = 1. - 0.6 * drive;  
+        let upper_limit_param = 1. - 0.6 * drive;
         let lower_skew_param = 2. * drive + 1.;
         if -1. <= x && x <= 0. {
             Self::lower_waveshaper(2. * x + 1., lower_skew_param) - 0.5
         } else if 0. < x && x <= 1. {
-            upper_limit_param * (Self::cubic_waveshaper(2. * x - 1.) + 0.5) 
+            upper_limit_param * (Self::cubic_waveshaper(2. * x - 1.) + 0.5)
         } else if x < -1. {
             -1.
         } else {
             1.
         }
-        
     }
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion v0.1.1";
+    const NAME: &'static str = "Distortion v0.1.2";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -259,6 +258,8 @@ impl Plugin for Distortion {
                     }
                     DistortionType::HardClipping => {
                         // Desmos visualization of parameterization: https://www.desmos.com/calculator/tbfrqrmmvo
+                        // FIXME: this doesn't actually do anything...
+                        // TODO: try this version: https://www.desmos.com/calculator/7n1hzd53rf
                         let threshold = 1. - 0.4 * drive;
                         if *sample > threshold {
                             threshold
@@ -268,8 +269,8 @@ impl Plugin for Distortion {
                             *sample
                         }
                     }
-                    DistortionType::FullWaveRectifier => (*sample).abs(),
-                    DistortionType::HalfWaveRectifier => {
+                    DistortionType::FullWaveRectifier => (*sample).abs(),  // TODO: parameterize
+                    DistortionType::HalfWaveRectifier => {  // TODO: parameterize
                         if *sample < 0. {
                             0.
                         } else {
@@ -277,6 +278,7 @@ impl Plugin for Distortion {
                         }
                     }
                     DistortionType::ShockleyDiodeRectifier => {
+                        // FIXME: lots of clicks, add gain reduction or reduce range of drive
                         // Based off Chowdhury's Shockley Diode rectifier approximation:
                         // https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
                         // Desmos visualization of parameterization: https://www.desmos.com/calculator/r7gyt947xh
