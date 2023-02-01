@@ -10,9 +10,9 @@ pub struct Distortion {
 
 #[derive(Enum, Debug, PartialEq, Eq)]
 enum DistortionType {
-    #[id = "soft-clipping"]
-    #[name = "Soft clipping"]
-    SoftClipping,
+    #[id = "saturation"]
+    #[name = "Saturation"]
+    Saturation,
 
     #[id = "hard-clipping"]
     #[name = "Hard clipping"]
@@ -126,7 +126,7 @@ impl Default for DistortionParams {
             .with_smoother(SmoothingStyle::Linear(50.0))
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
-            distortion_type: EnumParam::new("Type", DistortionType::SoftClipping),
+            distortion_type: EnumParam::new("Type", DistortionType::Saturation),
         }
     }
 }
@@ -136,9 +136,12 @@ impl Distortion {
     /// Drive parameter increases the saturation.
     ///
     /// Source: https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html
-    fn get_soft_clip_output(drive: f32, input_sample: f32) -> f32 {
+    fn get_saturator_output(drive: f32, input_sample: f32) -> f32 {
+        let drive = drive.min(0.99);
         let k = 2.0 * drive / (1.0 - drive);
-        ((1.0 + k) * input_sample) / (1.0 + k * (input_sample).abs())
+        let wet = ((1.0 + k) * input_sample) / (1.0 + k * (input_sample).abs());
+        // TODO: see how this sounds
+        (1. - 0.3 * drive) * wet
     }
 
     /// Processes an input sample through a static hard clipper.
@@ -146,10 +149,10 @@ impl Distortion {
     ///
     /// Desmos visualization of parameterization: https://www.desmos.com/calculator/7n1hzd53rf
     fn get_hard_clipper_output(drive: f32, input_sample: f32) -> f32 {
-        // FIXME: increase intensity of distortion
-        let threshold = 1. - 0.4 * drive;
-        let slope = 1. + 0.3 * drive;
-        let x = input_sample;
+        let threshold = 1. - 0.5 * drive;
+        let slope = 1. + 0.5 * drive;
+        // Drive input into hard clipper for more distortion
+        let x = input_sample * (1. + 4. * drive);
         if x.abs() < threshold {
             slope * x
         } else if slope * x > threshold {
@@ -166,14 +169,14 @@ impl Distortion {
     fn get_fuzzy_rectifier_output(drive: f32, input_sample: f32) -> f32 {
         let x = input_sample;
         if x >= 0. {
-            // TODO: change this to a dry/wet with tanh if not distorted enough
             input_sample
         } else {
             (1. - 2. * drive) * x
         }
     }
 
-    /// FIXME: lots of clicks, add gain reduction or reduce range of drive
+    /// FIXME: slightly increase range for more distortion
+    /// TODO: update desmos graph
     ///
     /// Processes an input sample through a rectifying curve modeled after a Shockley-Diode circuit.
     /// Drive parameter changes the intensity of the curve.
@@ -183,7 +186,7 @@ impl Distortion {
     ///
     /// Desmos visualization of parameterization: https://www.desmos.com/calculator/r7gyt947xh
     fn get_shockley_diode_rectifier_output(drive: f32, input_sample: f32) -> f32 {
-        (0.4 * drive + 0.1) * (E.powf((8. * drive + 2.) * input_sample) - 1.)
+        (0.4 * drive + 0.1) * (E.powf((2. + 2. * drive) * input_sample) - 1.)
     }
 
     /// Processes an input sample through a dropout curve modeled after analog circuit response, where
@@ -234,11 +237,13 @@ impl Distortion {
     /// Desmos visualization of parameterization: https://www.desmos.com/calculator/bplxqizjbe
     fn get_double_soft_clipper_output(drive: f32, input_sample: f32) -> f32 {
         let x = input_sample;
-        let upper_limit_param = 1. - 0.6 * drive;
+        let upper_limit_param = 1. - 0.4 * drive;
         let lower_skew_param = 2. * drive + 1.;
         if -1. <= x && x <= 0. {
             Self::lower_waveshaper(2. * x + 1., lower_skew_param) - 0.5
         } else if 0. < x && x <= 1. {
+            // Drive input value
+            let x = x * 1.5;
             upper_limit_param * (Self::cubic_waveshaper(2. * x - 1.) + 0.5)
         } else if x < -1. {
             -1.
@@ -250,14 +255,20 @@ impl Distortion {
     /// Processes an input sample through a sinusoidal wavefolder.
     /// The drive parameter increases the frequency of the sine curve, causing more distortion.
     fn get_waveshaper_output(drive: f32, input_sample: f32) -> f32 {
-        // FIXME: make this scale better with drive; too distorted even at lowest settings
-        let k = 1. + (drive * 4.);
-        (2. * PI * k * input_sample).sin()
+        let k = 1. + (drive * 3.);
+        let wet = (2. * PI * k * input_sample).sin();
+        
+        // Apply dry/wet based on drive to control volume
+        let wet = (1. - drive) * input_sample + (drive) * wet;
+        
+        // TODO: check how this sounds now
+        // Reduce gain as drive increases
+        (1. - 0.3 * drive) * wet
     }
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion v0.1.4";
+    const NAME: &'static str = "Distortion v0.0.7";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -327,7 +338,7 @@ impl Plugin for Distortion {
 
                 // Apply distortion
                 let wet = match distortion_type {
-                    DistortionType::SoftClipping => Self::get_soft_clip_output(drive, *sample),
+                    DistortionType::Saturation => Self::get_saturator_output(drive, *sample),
                     DistortionType::HardClipping => Self::get_hard_clipper_output(drive, *sample),
                     DistortionType::FuzzyRectifier => {
                         Self::get_fuzzy_rectifier_output(drive, *sample)
@@ -387,8 +398,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn soft_clip_returns_correct_dc_offset() {
-        assert_eq!(Distortion::get_soft_clip_output(0., 0.), 0.);
+    fn saturator_returns_correct_dc_offset() {
+        assert_eq!(Distortion::get_saturator_output(0., 0.), 0.);
     }
 }
 
