@@ -18,23 +18,6 @@ enum DistortionType {
     #[name = "Hard clipping"]
     HardClipping,
 
-    // TODO: deprecate
-    #[id = "full-wave-rectifier"]
-    #[name = "Full wave rectifier"]
-    FullWaveRectifier,
-
-    // TODO: deprecate
-    #[id = "half-wave-rectifier"]
-    #[name = "Half wave rectifier"]
-    HalfWaveRectifier,
-
-    // TODO: implement this distortion type (details below)
-    // positive input values should either be mapped the same, or could be soft-clipped based on drive
-    // negative input values should be mapped based on drive:
-    // - for drive=0, keep the same
-    // - for drive=0.5, make it half wave rectification (all inputs < 0 goes to 0)
-    // - for drive=1, should be full wave rectification (output is absolute value)
-    // for everything in between, make it on a linear scale between these values
     #[id = "fuzzy-rectifier"]
     #[name = "Fuzzy rectifier"]
     FuzzyRectifier,
@@ -148,7 +131,6 @@ impl Default for DistortionParams {
     }
 }
 
-// TODO: refactor all distortion algorithms here
 impl Distortion {
     /// Processes an input sample through a static, saturating waveshaper.
     /// Drive parameter increases the saturation.
@@ -157,6 +139,75 @@ impl Distortion {
     fn get_soft_clip_output(drive: f32, input_sample: f32) -> f32 {
         let k = 2.0 * drive / (1.0 - drive);
         ((1.0 + k) * input_sample) / (1.0 + k * (input_sample).abs())
+    }
+
+    /// Processes an input sample through a static hard clipper.
+    /// Drive parameter increases distortion and reduces threshold.
+    ///
+    /// Desmos visualization of parameterization: https://www.desmos.com/calculator/7n1hzd53rf
+    fn get_hard_clipper_output(drive: f32, input_sample: f32) -> f32 {
+        // FIXME: increase intensity of distortion
+        let threshold = 1. - 0.4 * drive;
+        let slope = 1. + 0.3 * drive;
+        let x = input_sample;
+        if x.abs() < threshold {
+            slope * x
+        } else if slope * x > threshold {
+            slope * threshold
+        } else {
+            -slope * threshold
+        }
+    }
+
+    /// Processes an input sample through a fuzz inducing rectifier.
+    /// Drive parameter linearly changes waveshaper from a half-wave rectifier to a full-wave rectifier.
+    ///
+    /// Desmos visualization of parameterization: https://www.desmos.com/calculator/ty0gtxg43u
+    fn get_fuzzy_rectifier_output(drive: f32, input_sample: f32) -> f32 {
+        let x = input_sample;
+        if x >= 0. {
+            // TODO: change this to a dry/wet with tanh if not distorted enough
+            input_sample
+        } else {
+            (1. - 2. * drive) * x
+        }
+    }
+
+    /// FIXME: lots of clicks, add gain reduction or reduce range of drive
+    ///
+    /// Processes an input sample through a rectifying curve modeled after a Shockley-Diode circuit.
+    /// Drive parameter changes the intensity of the curve.
+    ///
+    /// Based off Chowdhury's Shockley Diode rectifier approximation:
+    /// https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
+    ///
+    /// Desmos visualization of parameterization: https://www.desmos.com/calculator/r7gyt947xh
+    fn get_shockley_diode_rectifier_output(drive: f32, input_sample: f32) -> f32 {
+        (0.4 * drive + 0.1) * (E.powf((8. * drive + 2.) * input_sample) - 1.)
+    }
+
+    /// Processes an input sample through a dropout curve modeled after analog circuit response, where
+    /// lower input levels snap to zero.
+    /// Drive parameter changes the threshold of dropout.
+    ///
+    /// Based off Chowdhury's Dropout equation:
+    /// https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
+    ///
+    /// Desmos visualization of parameterization: https://www.desmos.com/calculator/2dmj6p7yvk
+    fn get_dropout_output(drive: f32, input_sample: f32) -> f32 {
+        if drive == 0. {
+            input_sample
+        } else {
+            let b = f32::sqrt(drive.powi(3) / 3.);
+            let x = input_sample;
+            if x < -b {
+                x + b - (b / drive).powi(3)
+            } else if -b <= x && x <= b {
+                (x / drive).powi(3)
+            } else {
+                x - b + (b / drive).powi(3)
+            }
+        }
     }
 
     fn cubic_waveshaper(x: f32) -> f32 {
@@ -175,7 +226,7 @@ impl Distortion {
         }
     }
 
-    /// Processes an input sample through a double soft clipper waveshaper algorithm.
+    /// Processes an input sample through an asymmetrical, "double soft clipper" waveshaper algorithm.
     /// The drive parameter changes the upper limit of positive inputs and the skew of negative inputs.
     ///
     /// Based off Chowdhury's double soft clipper:
@@ -196,23 +247,17 @@ impl Distortion {
         }
     }
 
-    fn get_hard_clipper_output(drive: f32, input_sample: f32) -> f32 {
-        // Desmos visualization of parameterization: https://www.desmos.com/calculator/7n1hzd53rf
-        let threshold = 1. - 0.4 * drive;
-        let slope = 1. + 0.3 * drive;
-        let x = input_sample;
-        if x.abs() < threshold {
-            slope * x
-        } else if slope * x > threshold {
-            slope * threshold
-        } else {
-            -slope * threshold
-        }
+    /// Processes an input sample through a sinusoidal wavefolder.
+    /// The drive parameter increases the frequency of the sine curve, causing more distortion.
+    fn get_waveshaper_output(drive: f32, input_sample: f32) -> f32 {
+        // FIXME: make this scale better with drive; too distorted even at lowest settings
+        let k = 1. + (drive * 4.);
+        (2. * PI * k * input_sample).sin()
     }
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion v0.1.3";
+    const NAME: &'static str = "Distortion v0.1.4";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -274,60 +319,27 @@ impl Plugin for Distortion {
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
             let distortion_type = self.params.distortion_type.value();
 
+            // TODO: implement upsampling
+
             for sample in channel_samples {
                 // Apply input gain
                 *sample *= input_gain;
 
                 // Apply distortion
                 let wet = match distortion_type {
-                    DistortionType::SoftClipping => {
-                        Distortion::get_soft_clip_output(drive, *sample)
+                    DistortionType::SoftClipping => Self::get_soft_clip_output(drive, *sample),
+                    DistortionType::HardClipping => Self::get_hard_clipper_output(drive, *sample),
+                    DistortionType::FuzzyRectifier => {
+                        Self::get_fuzzy_rectifier_output(drive, *sample)
                     }
-                    DistortionType::HardClipping => {
-                        Distortion::get_hard_clipper_output(drive, *sample)
-                    }
-                    DistortionType::FullWaveRectifier => (*sample).abs(), // TODO: deprecate
-                    DistortionType::HalfWaveRectifier => {
-                        // TODO: deprecate
-                        if *sample < 0. {
-                            0.
-                        } else {
-                            *sample
-                        }
-                    }
-                    DistortionType::FuzzyRectifier => *sample, // TODO: replace with actual implementation
                     DistortionType::ShockleyDiodeRectifier => {
-                        // FIXME: lots of clicks, add gain reduction or reduce range of drive
-                        // Based off Chowdhury's Shockley Diode rectifier approximation:
-                        // https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
-                        // Desmos visualization of parameterization: https://www.desmos.com/calculator/r7gyt947xh
-                        (0.4 * drive + 0.1) * (E.powf((8. * drive + 2.) * *sample) - 1.)
+                        Self::get_shockley_diode_rectifier_output(drive, *sample)
                     }
-                    DistortionType::Dropout => {
-                        // Based off Chowdhury's Dropout equation:
-                        // https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
-                        // Desmos visualization of parameterization: https://www.desmos.com/calculator/2dmj6p7yvk
-                        if drive == 0. {
-                            *sample
-                        } else {
-                            let b = f32::sqrt(drive.powi(3) / 3.);
-                            let x = *sample;
-                            if x < -b {
-                                x + b - (b / drive).powi(3)
-                            } else if -b <= x && x <= b {
-                                (x / drive).powi(3)
-                            } else {
-                                x - b + (b / drive).powi(3)
-                            }
-                        }
-                    }
+                    DistortionType::Dropout => Distortion::get_dropout_output(drive, *sample),
                     DistortionType::DoubleSoftClipper => {
-                        Distortion::get_double_soft_clipper_output(drive, *sample)
+                        Self::get_double_soft_clipper_output(drive, *sample)
                     }
-                    DistortionType::Wavefolding => {
-                        let k = 1. + (drive * 4.);
-                        (2. * PI * k * *sample).sin()
-                    }
+                    DistortionType::Wavefolding => Self::get_waveshaper_output(drive, *sample),
                 };
 
                 // Apply dry/wet
@@ -336,6 +348,8 @@ impl Plugin for Distortion {
                 // Apply output gain
                 *sample *= output_gain;
             }
+
+            // TODO: implement downsampling
         }
 
         ProcessStatus::Normal
@@ -367,6 +381,7 @@ impl Vst3Plugin for Distortion {
     const VST3_CATEGORIES: &'static str = "Fx|Distortion";
 }
 
+// TODO: write tests
 #[cfg(test)]
 mod tests {
     use super::*;
