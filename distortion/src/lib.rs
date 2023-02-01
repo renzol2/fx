@@ -18,13 +18,26 @@ enum DistortionType {
     #[name = "Hard clipping"]
     HardClipping,
 
+    // TODO: deprecate
     #[id = "full-wave-rectifier"]
     #[name = "Full wave rectifier"]
     FullWaveRectifier,
 
+    // TODO: deprecate
     #[id = "half-wave-rectifier"]
     #[name = "Half wave rectifier"]
     HalfWaveRectifier,
+
+    // TODO: implement this distortion type (details below)
+    // positive input values should either be mapped the same, or could be soft-clipped based on drive
+    // negative input values should be mapped based on drive:
+    // - for drive=0, keep the same
+    // - for drive=0.5, make it half wave rectification (all inputs < 0 goes to 0)
+    // - for drive=1, should be full wave rectification (output is absolute value)
+    // for everything in between, make it on a linear scale between these values
+    #[id = "fuzzy-rectifier"]
+    #[name = "Fuzzy rectifier"]
+    FuzzyRectifier,
 
     #[id = "shockley-diode-rectifier"]
     #[name = "Shockley diode rectifier"]
@@ -182,10 +195,24 @@ impl Distortion {
             1.
         }
     }
+
+    fn get_hard_clipper_output(drive: f32, input_sample: f32) -> f32 {
+        // Desmos visualization of parameterization: https://www.desmos.com/calculator/7n1hzd53rf
+        let threshold = 1. - 0.4 * drive;
+        let slope = 1. + 0.3 * drive;
+        let x = input_sample;
+        if x.abs() < threshold {
+            slope * x
+        } else if slope * x > threshold {
+            slope * threshold
+        } else {
+            -slope * threshold
+        }
+    }
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion v0.1.2";
+    const NAME: &'static str = "Distortion v0.1.3";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -257,26 +284,18 @@ impl Plugin for Distortion {
                         Distortion::get_soft_clip_output(drive, *sample)
                     }
                     DistortionType::HardClipping => {
-                        // Desmos visualization of parameterization: https://www.desmos.com/calculator/tbfrqrmmvo
-                        // FIXME: this doesn't actually do anything...
-                        // TODO: try this version: https://www.desmos.com/calculator/7n1hzd53rf
-                        let threshold = 1. - 0.4 * drive;
-                        if *sample > threshold {
-                            threshold
-                        } else if *sample < -threshold {
-                            -threshold
-                        } else {
-                            *sample
-                        }
+                        Distortion::get_hard_clipper_output(drive, *sample)
                     }
-                    DistortionType::FullWaveRectifier => (*sample).abs(),  // TODO: parameterize
-                    DistortionType::HalfWaveRectifier => {  // TODO: parameterize
+                    DistortionType::FullWaveRectifier => (*sample).abs(), // TODO: deprecate
+                    DistortionType::HalfWaveRectifier => {
+                        // TODO: deprecate
                         if *sample < 0. {
                             0.
                         } else {
                             *sample
                         }
                     }
+                    DistortionType::FuzzyRectifier => *sample, // TODO: replace with actual implementation
                     DistortionType::ShockleyDiodeRectifier => {
                         // FIXME: lots of clicks, add gain reduction or reduce range of drive
                         // Based off Chowdhury's Shockley Diode rectifier approximation:
