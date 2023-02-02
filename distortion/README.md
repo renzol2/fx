@@ -3,15 +3,15 @@
 A collection of nonlinear waveshaping algorithms for distortion effects.
 
 - [x] Soft clipping ([musicdsp](https://www.musicdsp.org/en/latest/Effects/46-waveshaper.html))
-- [x] Hard clipping
-- [x] Rectifier (Chowdhury)
-- [x] Dropout (Chowdhury)
-- [ ] Double soft clipper (Chowdhury)
-- [x] Wavefolding (Chowdhury)
+- [x] Hard clipping 
+- [x] Rectifier (Custom)
+- [x] Dropout ([Chowdhury](https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf))
+- [x] Double soft clipper ([Chowdhury](https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf))
+- [x] Wavefolding ([Chowdhury](https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf))
 
 Additional parameters:
 
-- [ ] Input/output gain
+- [x] Input/output gain
 - [ ] Mixing of multiple distortion types into one signal (like AnalogObsession's COMPER and its compressor emulations)
 - [ ] Pre- and post- filtering (Signalsmith)
 
