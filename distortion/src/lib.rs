@@ -101,7 +101,7 @@ impl Default for DistortionParams {
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion v0.0.9";
+    const NAME: &'static str = "Distortion v0.0.10";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
