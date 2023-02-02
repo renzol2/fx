@@ -4,6 +4,12 @@ use std::sync::Arc;
 pub mod waveshapers;
 use waveshapers::*;
 
+pub mod dc_filter;
+use dc_filter::DcFilter;
+
+pub mod oversampling;
+use oversampling::AllpassFilter;
+
 pub struct Distortion {
     params: Arc<DistortionParams>,
 }
