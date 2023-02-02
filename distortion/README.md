@@ -6,7 +6,7 @@ A collection of nonlinear waveshaping algorithms for distortion effects.
 - [x] Hard clipping
 - [x] Rectifier (Chowdhury)
 - [x] Dropout (Chowdhury)
-- [ ] Double soft clipper (Chowdhury)
+- [x] Double soft clipper (Chowdhury)
 - [x] Wavefolding (Chowdhury)
 
 Additional parameters:
@@ -18,6 +18,14 @@ Additional parameters:
 DSP related features:
 
 - [ ] Oversampling
+
+Oversampling can be implemented using a DC filter and halfband filter. See `va-filter` for details.
+
+Useful links:
+
+- <https://github.com/Fredemus/va-filter/blob/main/src/resampling.rs>
+- <https://en.wikipedia.org/wiki/Half-band_filter>
+- <https://www.musicdsp.org/en/latest/Filters/39-polyphase-filters.html>
 
 ## Building
 
