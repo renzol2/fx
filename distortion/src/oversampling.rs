@@ -60,6 +60,7 @@ struct AllpassFilterCascade {
 impl AllpassFilterCascade {
     fn process(&mut self, input_sample: f32) -> f32 {
         let mut output = input_sample;
+        nih_plug::nih_debug_assert!(self.filter_count <= self.allpass_filters.len());
         for i in 0..self.filter_count {
             output = self.allpass_filters[i].process(output);
         }
@@ -234,7 +235,7 @@ impl HalfbandFilter {
         }
         let filter_a = AllpassFilterCascade {
             allpass_filters: allpasses_a,
-            filter_count: order,
+            filter_count: order / 2,
         };
         let mut allpasses_b = [AllpassFilter::default(); 6];
         for i in 0..order / 2 {
@@ -242,7 +243,7 @@ impl HalfbandFilter {
         }
         let filter_b = AllpassFilterCascade {
             allpass_filters: allpasses_b,
-            filter_count: order,
+            filter_count: order / 2,
         };
         HalfbandFilter {
             filter_a,

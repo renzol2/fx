@@ -68,11 +68,12 @@ pub fn get_hard_clipper_output(drive: f32, input_sample: f32) -> f32 {
 /// Desmos visualization of parameterization: https://www.desmos.com/calculator/ty0gtxg43u
 pub fn get_fuzzy_rectifier_output(drive: f32, input_sample: f32) -> f32 {
     let x = input_sample;
-    if x >= 0. {
+    let output = if x >= 0. {
         input_sample
     } else {
         (1. - 2. * drive) * x
-    }
+    };
+    get_saturator_output(drive, output)
 }
 
 /// Processes an input sample through a rectifying curve modeled after a Shockley-Diode circuit.
@@ -103,13 +104,14 @@ pub fn get_dropout_output(drive: f32, input_sample: f32) -> f32 {
     } else {
         let b = f32::sqrt(drive.powi(3) / 3.);
         let x = input_sample;
-        if x < -b {
+        let output = if x < -b {
             x + b - (b / drive).powi(3)
         } else if -b <= x && x <= b {
             (x / drive).powi(3)
         } else {
             x - b + (b / drive).powi(3)
-        }
+        };
+        get_hard_clipper_output(drive, output)
     }
 }
 
@@ -140,11 +142,13 @@ pub fn get_double_soft_clipper_output(drive: f32, input_sample: f32) -> f32 {
     let upper_limit_param = 1. - 0.4 * drive;
     let lower_skew_param = 2. * drive + 1.;
     if -1. <= x && x <= 0. {
-        lower_waveshaper(2. * x + 1., lower_skew_param) - 0.5
+        let output = lower_waveshaper(2. * x + 1., lower_skew_param) - 0.5;
+        get_saturator_output(drive, output)
     } else if 0. < x && x <= 1. {
         // Drive input value
         let x = x * 1.5;
-        upper_limit_param * (cubic_waveshaper(2. * x - 1.) + 0.5)
+        let output = upper_limit_param * (cubic_waveshaper(2. * x - 1.) + 0.5);
+        get_saturator_output(drive, output)
     } else if x < -1. {
         -1.
     } else {

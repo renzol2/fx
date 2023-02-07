@@ -47,7 +47,7 @@ impl Default for Distortion {
             upsampler: HalfbandFilter::new(8, true),
             downsampler: HalfbandFilter::new(8, true),
             dc_filter: DcFilter::default(),
-            oversample_factor: 2,
+            oversample_factor: 4,
         }
     }
 }
@@ -115,7 +115,7 @@ impl Default for DistortionParams {
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion v0.0.10";
+    const NAME: &'static str = "Distortion v0.0.13";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -156,6 +156,12 @@ impl Plugin for Distortion {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
+        let fs = _buffer_config.sample_rate;
+        if fs >= 88200. {
+            self.oversample_factor = 1;
+        } else {
+            self.oversample_factor = 4;
+        }
         true
     }
 
@@ -177,8 +183,6 @@ impl Plugin for Distortion {
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
             let distortion_type = self.params.distortion_type.value();
 
-            // TODO: test if oversampling worked
-
             for sample in channel_samples {
                 // Apply DC filter
                 *sample = self.dc_filter.process(*sample);
@@ -186,28 +190,35 @@ impl Plugin for Distortion {
                 // Apply input gain
                 *sample *= input_gain;
 
-                // Zero-stuff
-                let input = *sample;
-                let mut frame = [input, 0.];
+                // Oversample if needed
+                let processed_sample = if self.oversample_factor == 4 {
+                    // Zero-stuff
+                    let input = *sample;
+                    let mut frame = [input, 0., 0., 0.];
 
-                // Apply processing
-                for i in 0..self.oversample_factor {
-                    // Run input through half-band filter
-                    frame[i] = self.upsampler.process(frame[i]);
+                    // Apply processing
+                    for i in 0..frame.len() {
+                        // Run input through half-band filter
+                        frame[i] = self.upsampler.process(frame[i]);
 
-                    // Apply distortion
-                    let wet = process_sample(&distortion_type, drive, frame[i]);
+                        // Apply distortion
+                        let wet = process_sample(&distortion_type, drive, frame[i]);
 
-                    // Downsample through half-band filter
-                    frame[i] = self.downsampler.process(wet);
-                }
-                
-                // Get output after downsampling
-                let output = frame[0];
+                        // Downsample through half-band filter
+                        frame[i] = self.downsampler.process(wet);
+                    }
+                    
+                    // Get output after downsampling
+                    frame[0]
+                } else {
+                    // Don't oversample if not needed
+                    process_sample(&distortion_type, drive, *sample)
+                };
 
                 // Apply dry/wet and rewrite buffer
-                let output = (input * (1.0 - dry_wet_ratio)) + (output * dry_wet_ratio);
-                *sample = output * output_gain;
+                let processed_sample = (*sample * (1.0 - dry_wet_ratio)) + (processed_sample * dry_wet_ratio);
+
+                *sample = processed_sample * output_gain;
             }
         }
 
