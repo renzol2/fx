@@ -17,7 +17,7 @@ Additional parameters:
 
 DSP related features:
 
-- [ ] Oversampling
+- [x] Oversampling
 
 Oversampling can be implemented using a DC filter and halfband filter. See `va-filter` for details.
 
