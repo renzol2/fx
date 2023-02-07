@@ -30,18 +30,6 @@ impl Default for AllpassFilter {
 }
 
 impl AllpassFilter {
-    fn new(coefficient: f32) -> AllpassFilter {
-        AllpassFilter {
-            a: coefficient,
-            x0: 0.0,
-            x1: 0.0,
-            x2: 0.0,
-            y0: 0.0,
-            y1: 0.0,
-            y2: 0.0,
-        }
-    }
-
     fn process(&mut self, input_sample: f32) -> f32 {
         // Shuffle inputs
         self.x2 = self.x1;
