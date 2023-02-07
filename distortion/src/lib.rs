@@ -1,11 +1,21 @@
+use dc_filter::DcFilter;
 use nih_plug::prelude::*;
+use oversampling::HalfbandFilter;
 use std::sync::Arc;
 
 pub mod waveshapers;
 use waveshapers::*;
 
+pub mod dc_filter;
+
+pub mod oversampling;
+
 pub struct Distortion {
     params: Arc<DistortionParams>,
+    upsampler: HalfbandFilter,
+    downsampler: HalfbandFilter,
+    dc_filter: DcFilter,
+    oversample_factor: usize,
 }
 
 #[derive(Params)]
@@ -34,6 +44,10 @@ impl Default for Distortion {
     fn default() -> Self {
         Self {
             params: Arc::new(DistortionParams::default()),
+            upsampler: HalfbandFilter::new(8, true),
+            downsampler: HalfbandFilter::new(8, true),
+            dc_filter: DcFilter::default(),
+            oversample_factor: 4,
         }
     }
 }
@@ -101,7 +115,7 @@ impl Default for DistortionParams {
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion v0.0.10";
+    const NAME: &'static str = "Distortion v0.0.13";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -142,6 +156,12 @@ impl Plugin for Distortion {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
+        let fs = _buffer_config.sample_rate;
+        if fs >= 88200. {
+            self.oversample_factor = 1;
+        } else {
+            self.oversample_factor = 4;
+        }
         true
     }
 
@@ -163,23 +183,43 @@ impl Plugin for Distortion {
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
             let distortion_type = self.params.distortion_type.value();
 
-            // TODO: implement upsampling
-
             for sample in channel_samples {
+                // Apply DC filter
+                *sample = self.dc_filter.process(*sample);
+
                 // Apply input gain
                 *sample *= input_gain;
 
-                // Apply distortion
-                let wet = process_sample(&distortion_type, drive, *sample);
+                // Oversample if needed
+                let processed_sample = if self.oversample_factor == 4 {
+                    // Zero-stuff
+                    let input = *sample;
+                    let mut frame = [input, 0., 0., 0.];
 
-                // Apply dry/wet
-                *sample = (*sample * (1.0 - dry_wet_ratio)) + (wet * dry_wet_ratio);
+                    // Apply processing
+                    for i in 0..frame.len() {
+                        // Run input through half-band filter
+                        frame[i] = self.upsampler.process(frame[i]);
 
-                // Apply output gain
-                *sample *= output_gain;
+                        // Apply distortion
+                        let wet = process_sample(&distortion_type, drive, frame[i]);
+
+                        // Downsample through half-band filter
+                        frame[i] = self.downsampler.process(wet);
+                    }
+                    
+                    // Get output after downsampling
+                    frame[0]
+                } else {
+                    // Don't oversample if not needed
+                    process_sample(&distortion_type, drive, *sample)
+                };
+
+                // Apply dry/wet and rewrite buffer
+                let processed_sample = (*sample * (1.0 - dry_wet_ratio)) + (processed_sample * dry_wet_ratio);
+
+                *sample = processed_sample * output_gain;
             }
-
-            // TODO: implement downsampling
         }
 
         ProcessStatus::Normal
