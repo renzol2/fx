@@ -1,14 +1,14 @@
-use dc_filter::DcFilter;
 use nih_plug::prelude::*;
-use oversampling::HalfbandFilter;
 use std::sync::Arc;
 
 pub mod waveshapers;
 use waveshapers::*;
 
 pub mod dc_filter;
+use dc_filter::DcFilter;
 
 pub mod oversampling;
+use oversampling::HalfbandFilter;
 
 pub struct Distortion {
     params: Arc<DistortionParams>,
