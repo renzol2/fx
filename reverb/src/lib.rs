@@ -1,8 +1,12 @@
+use freeverb::Freeverb;
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
+mod freeverb;
+
 pub struct Reverb {
     params: Arc<ReverbParams>,
+    freeverb: Freeverb,
 }
 
 #[derive(Params)]
@@ -15,6 +19,7 @@ impl Default for Reverb {
     fn default() -> Self {
         Self {
             params: Arc::new(ReverbParams::default()),
+            // FIXME: how do I add freeverb here if I don't have access to sample rate
         }
     }
 }
