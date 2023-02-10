@@ -19,7 +19,7 @@ impl Default for Reverb {
     fn default() -> Self {
         Self {
             params: Arc::new(ReverbParams::default()),
-            // FIXME: how do I add freeverb here if I don't have access to sample rate
+            freeverb: Freeverb::new(44100),  // default, can set later during initialization
         }
     }
 }
@@ -90,6 +90,7 @@ impl Plugin for Reverb {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
+        self.freeverb.generate_filters(_buffer_config.sample_rate as usize);
         true
     }
 
@@ -104,13 +105,17 @@ impl Plugin for Reverb {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        for channel_samples in buffer.iter_samples() {
+        for mut channel_samples in buffer.iter_samples() {
             // Smoothing is optionally built into the parameters themselves
+            
+            let in_l = *channel_samples.get_mut(0).unwrap();
+            let in_r = *channel_samples.get_mut(1).unwrap();
+            
+            let frame_out = self.freeverb.tick((in_l, in_r));
+            
             let gain = self.params.gain.smoothed.next();
-
-            for sample in channel_samples {
-                *sample *= gain;
-            }
+            *channel_samples.get_mut(0).unwrap() = frame_out.0 * gain;
+            *channel_samples.get_mut(1).unwrap() = frame_out.1 * gain;
         }
 
         ProcessStatus::Normal

@@ -1,4 +1,6 @@
 // All code taken from Ian Hobson's Freeverb implementation talk: https://www.youtube.com/watch?v=Yom9E-67bdI
+// Code here: https://github.com/irh/freeverb-rs/blob/main/src/freeverb/src/freeverb.rs
+// Ian Hobson's `freeverb-rs` is licensed under MIT License.
 
 /// A delay line with variable buffer size.
 pub struct DelayLine {
@@ -72,6 +74,15 @@ impl Comb {
         }
     }
 
+    pub fn set_feedback(&mut self, value: f32) {
+        self.feedback = value;
+    }
+
+    pub fn set_dampening(&mut self, value: f32) {
+        self.dampening = value;
+        self.dampening_inverse = 1.0 - value;
+    }
+
     pub fn tick(&mut self, input: f32) -> f32 {
         let output = self.delay_line.read();
         self.filter_state = output * self.dampening_inverse + self.filter_state * self.dampening;
@@ -86,9 +97,15 @@ impl Comb {
 /// Tuning for Freeverb can be found here:
 /// https://ccrma.stanford.edu/~jos/pasp/Freeverb.html
 
-const SCALE_WET: f32 = 0.1; // TODO: find out this value
-const STEREO_SPREAD: usize = 1; // TODO: find out this value
-const FIXED_GAIN: f32 = 1.0; // TODO: find out this value
+const SCALE_WET: f32 = 3.0;
+const SCALE_DAMPENING: f32 = 0.4;
+
+const STEREO_SPREAD: usize = 23;
+const FIXED_GAIN: f32 = 0.015;
+
+const SCALE_ROOM: f32 = 0.28;
+const OFFSET_ROOM: f32 = 0.7;
+
 const COMB_TUNING_L1: usize = 1116;
 const COMB_TUNING_R1: usize = 1116 + STEREO_SPREAD;
 const COMB_TUNING_L2: usize = 1118;
@@ -132,61 +149,69 @@ fn adjust_length(length: usize, sr: usize) -> usize {
     (length as f32 * sr as f32 / 44100.) as usize
 }
 
+fn generate_comb_filters(sr: usize) -> [(Comb, Comb); 8] {
+    [
+        (
+            Comb::new(adjust_length(COMB_TUNING_L1, sr)),
+            Comb::new(adjust_length(COMB_TUNING_R1, sr)),
+        ),
+        (
+            Comb::new(adjust_length(COMB_TUNING_L2, sr)),
+            Comb::new(adjust_length(COMB_TUNING_R2, sr)),
+        ),
+        (
+            Comb::new(adjust_length(COMB_TUNING_L3, sr)),
+            Comb::new(adjust_length(COMB_TUNING_R3, sr)),
+        ),
+        (
+            Comb::new(adjust_length(COMB_TUNING_L4, sr)),
+            Comb::new(adjust_length(COMB_TUNING_R4, sr)),
+        ),
+        (
+            Comb::new(adjust_length(COMB_TUNING_L5, sr)),
+            Comb::new(adjust_length(COMB_TUNING_R5, sr)),
+        ),
+        (
+            Comb::new(adjust_length(COMB_TUNING_L6, sr)),
+            Comb::new(adjust_length(COMB_TUNING_R6, sr)),
+        ),
+        (
+            Comb::new(adjust_length(COMB_TUNING_L7, sr)),
+            Comb::new(adjust_length(COMB_TUNING_R7, sr)),
+        ),
+        (
+            Comb::new(adjust_length(COMB_TUNING_L8, sr)),
+            Comb::new(adjust_length(COMB_TUNING_R8, sr)),
+        ),
+    ]
+}
+
+fn generate_allpass_filters(sr: usize) -> [(Allpass, Allpass); 4] {
+    [
+        (
+            Allpass::new(adjust_length(ALLPASS_TUNING_L1, sr)),
+            Allpass::new(adjust_length(ALLPASS_TUNING_R1, sr)),
+        ),
+        (
+            Allpass::new(adjust_length(ALLPASS_TUNING_L2, sr)),
+            Allpass::new(adjust_length(ALLPASS_TUNING_R2, sr)),
+        ),
+        (
+            Allpass::new(adjust_length(ALLPASS_TUNING_L3, sr)),
+            Allpass::new(adjust_length(ALLPASS_TUNING_R3, sr)),
+        ),
+        (
+            Allpass::new(adjust_length(ALLPASS_TUNING_L4, sr)),
+            Allpass::new(adjust_length(ALLPASS_TUNING_R4, sr)),
+        ),
+    ]
+}
+
 impl Freeverb {
     pub fn new(sr: usize) -> Self {
         let mut freeverb = Freeverb {
-            combs: [
-                (
-                    Comb::new(adjust_length(COMB_TUNING_L1, sr)),
-                    Comb::new(adjust_length(COMB_TUNING_R1, sr)),
-                ),
-                (
-                    Comb::new(adjust_length(COMB_TUNING_L2, sr)),
-                    Comb::new(adjust_length(COMB_TUNING_R2, sr)),
-                ),
-                (
-                    Comb::new(adjust_length(COMB_TUNING_L3, sr)),
-                    Comb::new(adjust_length(COMB_TUNING_R3, sr)),
-                ),
-                (
-                    Comb::new(adjust_length(COMB_TUNING_L4, sr)),
-                    Comb::new(adjust_length(COMB_TUNING_R4, sr)),
-                ),
-                (
-                    Comb::new(adjust_length(COMB_TUNING_L5, sr)),
-                    Comb::new(adjust_length(COMB_TUNING_R5, sr)),
-                ),
-                (
-                    Comb::new(adjust_length(COMB_TUNING_L6, sr)),
-                    Comb::new(adjust_length(COMB_TUNING_R6, sr)),
-                ),
-                (
-                    Comb::new(adjust_length(COMB_TUNING_L7, sr)),
-                    Comb::new(adjust_length(COMB_TUNING_R7, sr)),
-                ),
-                (
-                    Comb::new(adjust_length(COMB_TUNING_L8, sr)),
-                    Comb::new(adjust_length(COMB_TUNING_R8, sr)),
-                ),
-            ],
-            allpasses: [
-                (
-                    Allpass::new(adjust_length(ALLPASS_TUNING_L1, sr)),
-                    Allpass::new(adjust_length(ALLPASS_TUNING_R1, sr)),
-                ),
-                (
-                    Allpass::new(adjust_length(ALLPASS_TUNING_L2, sr)),
-                    Allpass::new(adjust_length(ALLPASS_TUNING_R2, sr)),
-                ),
-                (
-                    Allpass::new(adjust_length(ALLPASS_TUNING_L3, sr)),
-                    Allpass::new(adjust_length(ALLPASS_TUNING_R3, sr)),
-                ),
-                (
-                    Allpass::new(adjust_length(ALLPASS_TUNING_L4, sr)),
-                    Allpass::new(adjust_length(ALLPASS_TUNING_R4, sr)),
-                ),
-            ],
+            combs: generate_comb_filters(sr),
+            allpasses: generate_allpass_filters(sr),
             wet_gains: (0., 0.),
             wet: 0.,
             dry: 0.,
@@ -197,7 +222,18 @@ impl Freeverb {
             frozen: false,
         };
 
+        freeverb.set_wet(1.0);
+        freeverb.set_width(0.5);
+        freeverb.set_dampening(0.5);
+        freeverb.set_room_size(0.5);
+        freeverb.set_frozen(false);
+
         freeverb
+    }
+
+    pub fn generate_filters(&mut self, sr: usize) {
+        self.combs = generate_comb_filters(sr);
+        self.allpasses = generate_allpass_filters(sr);
     }
 
     pub fn set_wet(&mut self, value: f32) {
@@ -208,6 +244,38 @@ impl Freeverb {
     pub fn set_width(&mut self, value: f32) {
         self.width = value;
         self.update_wet_gains();
+    }
+
+    pub fn set_dampening(&mut self, value: f32) {
+        self.dampening = value * SCALE_DAMPENING;
+        self.update_combs()
+    }
+
+    fn set_frozen(&mut self, frozen: bool) {
+        self.frozen = frozen;
+        self.input_gain = if frozen { 0.0 } else { 1.0 };
+        self.update_combs();
+    }
+
+    pub fn set_room_size(&mut self, value: f32) {
+        self.room_size = value * SCALE_ROOM + OFFSET_ROOM;
+        self.update_combs();
+    }
+
+    fn update_combs(&mut self) {
+        let (feedback, dampening) = if self.frozen {
+            (1.0, 0.0)
+        } else {
+            (self.room_size, self.dampening)
+        };
+
+        for combs in self.combs.iter_mut() {
+            combs.0.set_feedback(feedback);
+            combs.1.set_feedback(feedback);
+
+            combs.0.set_dampening(dampening);
+            combs.1.set_dampening(dampening);
+        }
     }
 
     fn update_wet_gains(&mut self) {
