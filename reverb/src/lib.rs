@@ -11,8 +11,14 @@ pub struct Reverb {
 
 #[derive(Params)]
 struct ReverbParams {
-    #[id = "gain"]
-    pub gain: FloatParam,
+    #[id = "input-gain"]
+    pub input_gain: FloatParam,
+
+    #[id = "output-gain"]
+    pub output_gain: FloatParam,
+
+    #[id = "dry-wet"]
+    pub dry_wet_ratio: FloatParam,
 }
 
 impl Default for Reverb {
@@ -27,8 +33,8 @@ impl Default for Reverb {
 impl Default for ReverbParams {
     fn default() -> Self {
         Self {
-            gain: FloatParam::new(
-                "Gain",
+            input_gain: FloatParam::new(
+                "Input gain",
                 util::db_to_gain(0.0),
                 FloatRange::Skewed {
                     min: util::db_to_gain(-30.0),
@@ -40,6 +46,27 @@ impl Default for ReverbParams {
             .with_unit(" dB")
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+
+            output_gain: FloatParam::new(
+                "Output gain",
+                util::db_to_gain(0.0),
+                FloatRange::Skewed {
+                    min: util::db_to_gain(-30.0),
+                    max: util::db_to_gain(30.0),
+                    factor: FloatRange::gain_skew_factor(-30.0, 30.0),
+                },
+            )
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
+            .with_unit(" dB") .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
+            .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+
+            dry_wet_ratio: FloatParam::new(
+                "Dry/wet",
+                0.5,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_smoother(SmoothingStyle::Linear(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
         }
     }
 }
@@ -106,16 +133,20 @@ impl Plugin for Reverb {
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         for mut channel_samples in buffer.iter_samples() {
-            // Smoothing is optionally built into the parameters themselves
-            
+            let input_gain = self.params.input_gain.smoothed.next();
+            let output_gain = self.params.output_gain.smoothed.next();
+
             let in_l = *channel_samples.get_mut(0).unwrap();
             let in_r = *channel_samples.get_mut(1).unwrap();
             
-            let frame_out = self.freeverb.tick((in_l, in_r));
+            let frame_out = self.freeverb.tick((in_l * input_gain, in_r * input_gain));
+
+            let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
+            let out_l = in_l * dry_wet_ratio + frame_out.0 * (1. - dry_wet_ratio);
+            let out_r = in_r * dry_wet_ratio + frame_out.1 * (1. - dry_wet_ratio);
             
-            let gain = self.params.gain.smoothed.next();
-            *channel_samples.get_mut(0).unwrap() = frame_out.0 * gain;
-            *channel_samples.get_mut(1).unwrap() = frame_out.1 * gain;
+            *channel_samples.get_mut(0).unwrap() = out_l * output_gain;
+            *channel_samples.get_mut(1).unwrap() = out_r * output_gain;
         }
 
         ProcessStatus::Normal
@@ -123,7 +154,7 @@ impl Plugin for Reverb {
 }
 
 impl ClapPlugin for Reverb {
-    const CLAP_ID: &'static str = "com.your-domain.reverb";
+    const CLAP_ID: &'static str = "https://renzomledesma.me";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("Algorithmic reverb effects");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
