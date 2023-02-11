@@ -19,6 +19,15 @@ struct ReverbParams {
 
     #[id = "dry-wet"]
     pub dry_wet_ratio: FloatParam,
+
+    #[id = "room-size"]
+    pub room_size: FloatParam,
+
+    #[id = "dampening"]
+    pub dampening: FloatParam,
+
+    #[id = "frozen"]
+    pub frozen: BoolParam,
 }
 
 impl Default for Reverb {
@@ -67,12 +76,33 @@ impl Default for ReverbParams {
             )
             .with_smoother(SmoothingStyle::Linear(50.0))
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            room_size: FloatParam::new(
+                "Room size",
+                0.5,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_smoother(SmoothingStyle::Linear(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            dampening: FloatParam::new(
+                "Dampening",
+                0.5,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_smoother(SmoothingStyle::Linear(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            frozen: BoolParam::new(
+                "Frozen",
+                false,
+            ),
         }
     }
 }
 
 impl Plugin for Reverb {
-    const NAME: &'static str = "Reverb";
+    const NAME: &'static str = "Reverb v0.0.2";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -132,6 +162,17 @@ impl Plugin for Reverb {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        // Get parameters
+        let room_size = self.params.room_size.smoothed.next();
+        let dampening = self.params.dampening.smoothed.next();
+        let frozen = self.params.frozen.value();
+
+        // Update freeverb
+        self.freeverb.set_room_size(room_size);
+        self.freeverb.set_dampening(dampening);
+        self.freeverb.set_frozen(frozen);
+
+        // Process inputs
         for mut channel_samples in buffer.iter_samples() {
             let input_gain = self.params.input_gain.smoothed.next();
             let output_gain = self.params.output_gain.smoothed.next();
@@ -142,8 +183,8 @@ impl Plugin for Reverb {
             let frame_out = self.freeverb.tick((in_l * input_gain, in_r * input_gain));
 
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
-            let out_l = in_l * dry_wet_ratio + frame_out.0 * (1. - dry_wet_ratio);
-            let out_r = in_r * dry_wet_ratio + frame_out.1 * (1. - dry_wet_ratio);
+            let out_l = in_l * (1. - dry_wet_ratio) + frame_out.0 * dry_wet_ratio;
+            let out_r = in_r * (1. - dry_wet_ratio) + frame_out.1 * dry_wet_ratio;
             
             *channel_samples.get_mut(0).unwrap() = out_l * output_gain;
             *channel_samples.get_mut(1).unwrap() = out_r * output_gain;

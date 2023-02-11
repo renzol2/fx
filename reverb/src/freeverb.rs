@@ -251,7 +251,7 @@ impl Freeverb {
         self.update_combs()
     }
 
-    fn set_frozen(&mut self, frozen: bool) {
+    pub fn set_frozen(&mut self, frozen: bool) {
         self.frozen = frozen;
         self.input_gain = if frozen { 0.0 } else { 1.0 };
         self.update_combs();
