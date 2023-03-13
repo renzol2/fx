@@ -1,14 +1,35 @@
-use nih_plug::prelude::*;
+use std::f32::consts::PI;
 use std::sync::Arc;
+use std::{sync::atomic::AtomicBool};
 
+
+use nih_plug::prelude::*;
+
+enum BiquadFilterType {
+    LowPass,
+    HighPass,
+    BandPass,
+    Notch,
+    AllPass,
+    ParametricEQ,
+    LowShelf,
+    HighShelf,
+}
+
+// Biquad filter code from: https://www.earlevel.com/main/2012/11/26/biquad-c-source-code/
 struct BiquadFilter {
-    // Coefficients
+    // Filter type & coefficients
+    filter_type: BiquadFilterType,
     a0: f32,
     a1: f32,
     a2: f32,
-    b0: f32,
     b1: f32,
     b2: f32,
+
+    // Filter parameters
+    fc: f32,
+    q: f32,
+    peak_gain: f32,
 
     // Unit delays
     z1: f32,
@@ -16,45 +37,70 @@ struct BiquadFilter {
 }
 
 impl BiquadFilter {
-    fn new(frequency: f32) -> BiquadFilter {
-        BiquadFilter::get_lowpass_filter_coefficients(frequency, 1.0)
-    }
-
-    fn get_lowpass_filter_coefficients(frequency: f32, q: f32) -> BiquadFilter {
-        let alpha = (frequency.sin()) / (2.0 * q);
-        let b0 = (1.0 - frequency.cos()) / 2.0;
-        let b1 = 1.0 - frequency.cos();
-        let b2 = (1.0 - frequency.cos()) / 2.0;
-        let a0 = 1.0 + alpha;
-        let a1 = -2.0 * frequency.cos();
-        let a2 = 1.0 - alpha;
-        BiquadFilter {
-            a0,
-            a1,
-            a2,
-            b0,
-            b1,
-            b2,
+    fn new() -> BiquadFilter {
+        let mut bqf = BiquadFilter {
+            filter_type: BiquadFilterType::LowPass,
+            a0: 1.0,
+            a1: 0.0,
+            a2: 0.0,
+            b1: 0.0,
+            b2: 0.0,
+            fc: 0.5,
+            q: 0.707,
+            peak_gain: 0.0,
             z1: 0.0,
             z2: 0.0,
-        }
+        };
+        bqf.set_filter_type(BiquadFilterType::LowPass);
+        bqf
     }
 
-    fn update_filter_coefficients(&mut self, frequency: f32, q: f32) {
-        let alpha = (frequency.sin()) / (2.0 * q);
-        self.b0 = (1.0 - frequency.cos()) / 2.0;
-        self.b1 = 1.0 - frequency.cos();
-        self.b2 = (1.0 - frequency.cos()) / 2.0;
-        self.a0 = 1.0 + alpha;
-        self.a1 = -2.0 * frequency.cos();
-        self.a2 = 1.0 - alpha;
+    fn set_filter_type(&mut self, filter_type: BiquadFilterType) {
+        self.filter_type = filter_type;
+        self.calculate_biquad_coefficients();
+    }
+
+    fn set_q(&mut self, q: f32) {
+        self.q = q;
+        self.calculate_biquad_coefficients();
+    }
+
+    fn set_fc(&mut self, fc: f32) {
+        self.fc = fc;
+        self.calculate_biquad_coefficients();
+    }
+
+    fn set_peak_gain(&mut self, peak_gain: f32) {
+        self.peak_gain = peak_gain;
+        self.calculate_biquad_coefficients();
+    }
+
+    fn set_biquad(&mut self, filter_type: BiquadFilterType, fc: f32, q: f32, peak_gain: f32) {
+        self.filter_type = filter_type;
+        self.q = q;
+        self.fc = fc;
+        self.set_peak_gain(peak_gain)
+    }
+
+    fn calculate_biquad_coefficients(&mut self) {
+        let v = 10.0_f32.powf(self.peak_gain.abs() / 20.0);
+        let k = (PI * self.fc).tan();
+
+        // TODO: make this a match statement with filter types
+        // For now, default to LPF
+        let norm = (1.0 + k / self.q + k * k).recip();
+        self.a0 = k * k * norm;
+        self.a1 = 2.0 * self.a0;
+        self.a2 = self.a0;
+        self.b1 = 2.0 * (k * k - 1.0) * norm;
+        self.b2 = (1.0 - k / self.q + k * k) * norm;
     }
 
     fn process(&mut self, input: f32) -> f32 {
         let output = input * self.a0 + self.z1;
         self.z1 = input * self.a1 + self.z2 - self.b1 * output;
         self.z2 = input * self.a2 - self.b2 * output;
-        return output;
+        output
     }
 }
 
@@ -82,20 +128,18 @@ struct EqualizerParams {
 
 impl Default for Equalizer {
     fn default() -> Self {
+        let should_update_filter = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let params = Arc::new(EqualizerParams::new(should_update_filter.clone()));
         Self {
-            params: Arc::new(EqualizerParams::default()),
-            biquad: BiquadFilter::new(
-                EqualizerParams::default()
-                    .cutoff_frequency
-                    .default_normalized_value(),
-            ),
-            should_update_filter: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            params,
+            should_update_filter,
+            biquad: BiquadFilter::new(),
         }
     }
 }
 
-impl Default for EqualizerParams {
-    fn default() -> Self {
+impl EqualizerParams {
+    fn new(should_update_filter: Arc<AtomicBool>) -> Self {
         Self {
             gain: FloatParam::new(
                 "Gain",
@@ -117,27 +161,36 @@ impl Default for EqualizerParams {
                 FloatRange::Skewed {
                     min: 20.0,
                     max: 20_000.0,
-                    factor: FloatRange::skew_factor(2.0),
+                    factor: FloatRange::skew_factor(-2.2),
                 },
             )
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
-            .with_unit(" Hz"),
+            .with_unit(" Hz")
+            .with_callback(Arc::new({
+                let should_update_filter = should_update_filter.clone();
+                move |_| should_update_filter.store(true, std::sync::atomic::Ordering::SeqCst)
+            })),
 
             q: FloatParam::new(
                 "Q",
                 1.0,
-                FloatRange::Linear {
+                FloatRange::Skewed {
                     min: 0.1,
-                    max: 30.0,
+                    max: 18.0,
+                    factor: FloatRange::skew_factor(-2.2),
                 },
             )
-            .with_smoother(SmoothingStyle::Logarithmic(50.0)),
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
+            .with_callback(Arc::new({
+                let should_update_filter = should_update_filter.clone();
+                move |_| should_update_filter.store(true, std::sync::atomic::Ordering::SeqCst)
+            })),
         }
     }
 }
 
 impl Plugin for Equalizer {
-    const NAME: &'static str = "Equalizer v0.0.2";
+    const NAME: &'static str = "Equalizer v0.0.2.9";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -188,19 +241,24 @@ impl Plugin for Equalizer {
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         // Check if we should update filter coefficients
+        // FIXME: this only updating once when changing the frequency; after updating once, it no longer updates...
         if self
             .should_update_filter
             .compare_exchange(
                 true,
                 false,
-                std::sync::atomic::Ordering::Acquire,
-                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
             )
             .is_ok()
         {
             let frequency = self.params.cutoff_frequency.smoothed.next();
             let q = self.params.q.smoothed.next();
-            self.biquad.update_filter_coefficients(frequency, q);
+
+            let sample_rate = _context.transport().sample_rate;
+            let fc = frequency / sample_rate;
+            self.biquad.set_biquad(BiquadFilterType::LowPass, fc, q, 0.0);
+            self.biquad.calculate_biquad_coefficients();
         }
 
         for channel_samples in buffer.iter_samples() {
@@ -209,7 +267,7 @@ impl Plugin for Equalizer {
 
             for sample in channel_samples {
                 let processed = self.biquad.process(*sample);
-                *sample *= processed * gain;
+                *sample = processed * gain;
             }
         }
 
