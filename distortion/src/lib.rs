@@ -10,10 +10,15 @@ use dc_filter::DcFilter;
 pub mod oversampling;
 use oversampling::HalfbandFilter;
 
+pub mod biquad;
+use biquad::{BiquadFilter, BiquadFilterType};
+
 pub struct Distortion {
     params: Arc<DistortionParams>,
     upsampler: HalfbandFilter,
     downsampler: HalfbandFilter,
+    prefilter: BiquadFilter,
+    postfilter: BiquadFilter,
     dc_filter: DcFilter,
     oversample_factor: usize,
 }
@@ -42,13 +47,33 @@ struct DistortionParams {
 
 impl Default for Distortion {
     fn default() -> Self {
-        Self {
+        // Setup filters
+        let mut prefilter = BiquadFilter::new();
+        let mut postfilter = BiquadFilter::new();
+
+        let fc = 8000. / 44100.; // hz
+        // FIXME: try a lower gain amount. 36 dB is too high; input gain no longers works, and it stuffs out
+        // all the dynamic range of the signals.
+        let gain = 36.0; // dB
+        // FIXME: maybe mess with the Q as well. see Ableton's EQ for some examples perhaps
+        let q = 0.707;
+        prefilter.set_biquad(BiquadFilterType::HighShelf, fc, q, gain);
+        postfilter.set_biquad(BiquadFilterType::LowShelf, fc, q, -gain);
+
+        prefilter.calculate_biquad_coefficients();
+        postfilter.calculate_biquad_coefficients();
+
+        let d = Distortion {
             params: Arc::new(DistortionParams::default()),
             upsampler: HalfbandFilter::new(8, true),
             downsampler: HalfbandFilter::new(8, true),
+            prefilter,
+            postfilter,
             dc_filter: DcFilter::default(),
             oversample_factor: 4,
-        }
+        };
+        
+        return d;
     }
 }
 
@@ -115,7 +140,7 @@ impl Default for DistortionParams {
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion v0.0.13";
+    const NAME: &'static str = "Distortion v0.1.0";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -201,11 +226,13 @@ impl Plugin for Distortion {
                         // Run input through half-band filter
                         frame[i] = self.upsampler.process(frame[i]);
 
-                        // Apply distortion
+                        // Apply pre-filtering, distortion, and post-filtering
+                        frame[i] = self.prefilter.process(frame[i]);
                         let wet = process_sample(&distortion_type, drive, frame[i]);
+                        let wet_filtered = self.postfilter.process(wet);
 
                         // Downsample through half-band filter
-                        frame[i] = self.downsampler.process(wet);
+                        frame[i] = self.downsampler.process(wet_filtered);
                     }
                     
                     // Get output after downsampling
