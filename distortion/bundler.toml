@@ -5,4 +5,4 @@
 # name = "Human Readable Plugin Name"  # defaults to <package_name>
 
 [distortion]
-name = "Distortion"
+name = "Distortion 0.1.x"
