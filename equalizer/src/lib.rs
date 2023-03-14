@@ -1,108 +1,10 @@
-use std::f32::consts::PI;
 use std::sync::Arc;
 use std::{sync::atomic::AtomicBool};
 
-
+use biquad::{BiquadFilter, BiquadFilterType};
 use nih_plug::prelude::*;
 
-enum BiquadFilterType {
-    LowPass,
-    HighPass,
-    BandPass,
-    Notch,
-    AllPass,
-    ParametricEQ,
-    LowShelf,
-    HighShelf,
-}
-
-// Biquad filter code from: https://www.earlevel.com/main/2012/11/26/biquad-c-source-code/
-struct BiquadFilter {
-    // Filter type & coefficients
-    filter_type: BiquadFilterType,
-    a0: f32,
-    a1: f32,
-    a2: f32,
-    b1: f32,
-    b2: f32,
-
-    // Filter parameters
-    fc: f32,
-    q: f32,
-    peak_gain: f32,
-
-    // Unit delays
-    z1: f32,
-    z2: f32,
-}
-
-impl BiquadFilter {
-    fn new() -> BiquadFilter {
-        let mut bqf = BiquadFilter {
-            filter_type: BiquadFilterType::LowPass,
-            a0: 1.0,
-            a1: 0.0,
-            a2: 0.0,
-            b1: 0.0,
-            b2: 0.0,
-            fc: 0.5,
-            q: 0.707,
-            peak_gain: 0.0,
-            z1: 0.0,
-            z2: 0.0,
-        };
-        bqf.set_filter_type(BiquadFilterType::LowPass);
-        bqf
-    }
-
-    fn set_filter_type(&mut self, filter_type: BiquadFilterType) {
-        self.filter_type = filter_type;
-        self.calculate_biquad_coefficients();
-    }
-
-    fn set_q(&mut self, q: f32) {
-        self.q = q;
-        self.calculate_biquad_coefficients();
-    }
-
-    fn set_fc(&mut self, fc: f32) {
-        self.fc = fc;
-        self.calculate_biquad_coefficients();
-    }
-
-    fn set_peak_gain(&mut self, peak_gain: f32) {
-        self.peak_gain = peak_gain;
-        self.calculate_biquad_coefficients();
-    }
-
-    fn set_biquad(&mut self, filter_type: BiquadFilterType, fc: f32, q: f32, peak_gain: f32) {
-        self.filter_type = filter_type;
-        self.q = q;
-        self.fc = fc;
-        self.set_peak_gain(peak_gain)
-    }
-
-    fn calculate_biquad_coefficients(&mut self) {
-        let v = 10.0_f32.powf(self.peak_gain.abs() / 20.0);
-        let k = (PI * self.fc).tan();
-
-        // TODO: make this a match statement with filter types
-        // For now, default to LPF
-        let norm = (1.0 + k / self.q + k * k).recip();
-        self.a0 = k * k * norm;
-        self.a1 = 2.0 * self.a0;
-        self.a2 = self.a0;
-        self.b1 = 2.0 * (k * k - 1.0) * norm;
-        self.b2 = (1.0 - k / self.q + k * k) * norm;
-    }
-
-    fn process(&mut self, input: f32) -> f32 {
-        let output = input * self.a0 + self.z1;
-        self.z1 = input * self.a1 + self.z2 - self.b1 * output;
-        self.z2 = input * self.a2 - self.b2 * output;
-        output
-    }
-}
+mod biquad;
 
 pub struct Equalizer {
     params: Arc<EqualizerParams>,
@@ -110,9 +12,7 @@ pub struct Equalizer {
     should_update_filter: Arc<std::sync::atomic::AtomicBool>,
 }
 
-#[derive(Params)]
-struct EqualizerParams {
-    /// The parameter's ID is used to identify the parameter in the wrappred plugin API. As long as
+#[derive(Params)] struct EqualizerParams { /// The parameter's ID is used to identify the parameter in the wrappred plugin API. As long as
     /// these IDs remain constant, you can rename and reorder these fields as you wish. The
     /// parameters are exposed to the host in the same order they were defined. In this case, this
     /// gain parameter is stored as linear gain while the values are displayed in decibels.
