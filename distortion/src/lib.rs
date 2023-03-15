@@ -13,6 +13,8 @@ use oversampling::HalfbandFilter;
 pub mod biquad;
 use biquad::{BiquadFilter, BiquadFilterType};
 
+const FILTER_CUTOFF_HZ: f32 = 8000.0;
+
 pub struct Distortion {
     params: Arc<DistortionParams>,
     upsampler: HalfbandFilter,
@@ -58,7 +60,7 @@ impl Default for Distortion {
         let mut postfilter = BiquadFilter::new();
 
         // Biquad parameters tuned by ear
-        let fc = 8000. / 44100.; // hz
+        let fc = FILTER_CUTOFF_HZ / 44100.; // hz, using default sample rate
         let gain = 18.0; // dB
         let q = 0.1;
         prefilter.set_biquad(BiquadFilterType::HighShelf, fc, q, gain);
@@ -67,7 +69,7 @@ impl Default for Distortion {
         prefilter.calculate_biquad_coefficients();
         postfilter.calculate_biquad_coefficients();
 
-        let d = Distortion {
+        Distortion {
             params: Arc::new(DistortionParams::default()),
             upsampler: HalfbandFilter::new(8, true),
             downsampler: HalfbandFilter::new(8, true),
@@ -75,9 +77,7 @@ impl Default for Distortion {
             postfilter,
             dc_filter: DcFilter::default(),
             oversample_factor: 4,
-        };
-
-        return d;
+        }
     }
 }
 
@@ -195,6 +195,10 @@ impl Plugin for Distortion {
         } else {
             self.oversample_factor = 4;
         }
+
+        self.prefilter.set_fc(FILTER_CUTOFF_HZ / fs);
+        self.postfilter.set_fc(FILTER_CUTOFF_HZ / fs);
+
         true
     }
 
