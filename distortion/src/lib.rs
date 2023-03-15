@@ -51,12 +51,10 @@ impl Default for Distortion {
         let mut prefilter = BiquadFilter::new();
         let mut postfilter = BiquadFilter::new();
 
+        // Biquad parameters tuned by ear
         let fc = 8000. / 44100.; // hz
-        // FIXME: try a lower gain amount. 36 dB is too high; input gain no longers works, and it stuffs out
-        // all the dynamic range of the signals.
-        let gain = 36.0; // dB
-        // FIXME: maybe mess with the Q as well. see Ableton's EQ for some examples perhaps
-        let q = 0.707;
+        let gain = 18.0; // dB
+        let q = 0.1;
         prefilter.set_biquad(BiquadFilterType::HighShelf, fc, q, gain);
         postfilter.set_biquad(BiquadFilterType::LowShelf, fc, q, -gain);
 
@@ -140,7 +138,7 @@ impl Default for DistortionParams {
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion v0.1.0";
+    const NAME: &'static str = "Distortion v0.1.1";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
