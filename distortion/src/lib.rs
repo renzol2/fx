@@ -43,6 +43,12 @@ struct DistortionParams {
 
     #[id = "distortion-type"]
     pub distortion_type: EnumParam<DistortionType>,
+
+    #[id = "enable-pre-filter"]
+    pub enable_pre_filter: BoolParam,
+
+    #[id = "enable-post-filter"]
+    pub enable_post_filter: BoolParam,
 }
 
 impl Default for Distortion {
@@ -70,7 +76,7 @@ impl Default for Distortion {
             dc_filter: DcFilter::default(),
             oversample_factor: 4,
         };
-        
+
         return d;
     }
 }
@@ -133,12 +139,16 @@ impl Default for DistortionParams {
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
             distortion_type: EnumParam::new("Type", DistortionType::Saturation),
+
+            enable_pre_filter: BoolParam::new("Enable pre-filter", true),
+
+            enable_post_filter: BoolParam::new("Enable post-filter", true),
         }
     }
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion v0.1.1";
+    const NAME: &'static str = "Distortion v0.1.2";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -205,6 +215,8 @@ impl Plugin for Distortion {
             let drive = self.params.drive.smoothed.next();
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
             let distortion_type = self.params.distortion_type.value();
+            let enable_pre_filter = self.params.enable_pre_filter.value();
+            let enable_post_filter = self.params.enable_post_filter.value();
 
             for sample in channel_samples {
                 // Apply DC filter
@@ -225,14 +237,18 @@ impl Plugin for Distortion {
                         frame[i] = self.upsampler.process(frame[i]);
 
                         // Apply pre-filtering, distortion, and post-filtering
-                        frame[i] = self.prefilter.process(frame[i]);
-                        let wet = process_sample(&distortion_type, drive, frame[i]);
-                        let wet_filtered = self.postfilter.process(wet);
+                        if enable_pre_filter {
+                            frame[i] = self.prefilter.process(frame[i]);
+                        }
+                        let mut wet = process_sample(&distortion_type, drive, frame[i]);
+                        if enable_post_filter {
+                            wet = self.postfilter.process(wet);
+                        }
 
                         // Downsample through half-band filter
-                        frame[i] = self.downsampler.process(wet_filtered);
+                        frame[i] = self.downsampler.process(wet);
                     }
-                    
+
                     // Get output after downsampling
                     frame[0]
                 } else {
@@ -241,7 +257,8 @@ impl Plugin for Distortion {
                 };
 
                 // Apply dry/wet and rewrite buffer
-                let processed_sample = (*sample * (1.0 - dry_wet_ratio)) + (processed_sample * dry_wet_ratio);
+                let processed_sample =
+                    (*sample * (1.0 - dry_wet_ratio)) + (processed_sample * dry_wet_ratio);
 
                 *sample = processed_sample * output_gain;
             }
