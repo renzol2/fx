@@ -1,6 +1,6 @@
 [package]
 name = "equalizer"
-version = "0.0.8"
+version = "0.0.10"
 edition = "2021"
 authors = ["Renzo Ledesma <renzol2@illinois.edu>"]
 license = "GPL-3.0-or-later"

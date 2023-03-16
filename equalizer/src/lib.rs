@@ -50,6 +50,10 @@ impl EqualizerParams {
                     factor: FloatRange::gain_skew_factor(-30.0, 30.0),
                 },
             )
+            .with_callback(Arc::new({
+                let should_update_filter = should_update_filter.clone();
+                move |_| should_update_filter.store(true, Ordering::SeqCst)
+            }))
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_unit(" dB")
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
@@ -59,8 +63,8 @@ impl EqualizerParams {
                 "Cutoff",
                 1_000.0,
                 FloatRange::Skewed {
-                    min: 20.0,
-                    max: 20_000.0,
+                    min: 15.0,
+                    max: 22_000.0,
                     factor: FloatRange::skew_factor(-2.2),
                 },
             )
@@ -99,7 +103,7 @@ impl EqualizerParams {
 }
 
 impl Plugin for Equalizer {
-    const NAME: &'static str = "Equalizer v0.0.8";
+    const NAME: &'static str = "Equalizer v0.0.10";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";

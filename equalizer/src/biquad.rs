@@ -12,7 +12,16 @@ pub enum BiquadFilterType {
     HighShelf,
 }
 
-// Biquad filter code from: https://www.earlevel.com/main/2012/11/26/biquad-c-source-code/
+/// A biquad filter implementation that supports 7 filter types: low pass, high pass,
+/// band pass, notch, parametric (peaking), low shelf, and high shelf. This implementation is
+/// written in transposed direct form II, with two unit delays.
+/// 
+/// NOTE: There are a few known issues with this implementation so far:
+/// - When working with stereo input, low pass and band pass turns stereo input to mono.
+/// - Parametric, low shelf, and high shelf filters don't do anything when "cutting" (when the
+/// peak gain is below 0).
+/// 
+/// Biquad filter code from: https://www.earlevel.com/main/2012/11/26/biquad-c-source-code/
 pub struct BiquadFilter {
     // Filter type & coefficients
     filter_type: BiquadFilterType,
@@ -51,26 +60,31 @@ impl BiquadFilter {
         bqf
     }
 
+    /// Sets filter type and recalculates coefficients.
     pub fn set_filter_type(&mut self, filter_type: BiquadFilterType) {
         self.filter_type = filter_type;
         self.calculate_biquad_coefficients();
     }
 
+    /// Sets Q value and recalculates coefficients.
     pub fn set_q(&mut self, q: f32) {
         self.q = q;
         self.calculate_biquad_coefficients();
     }
 
+    /// Sets center frequency and recalculates coefficients.
     pub fn set_fc(&mut self, fc: f32) {
         self.fc = fc;
         self.calculate_biquad_coefficients();
     }
 
+    /// Sets peak gain and recalculates coefficients.
     pub fn set_peak_gain(&mut self, peak_gain: f32) {
         self.peak_gain = peak_gain;
         self.calculate_biquad_coefficients();
     }
 
+    /// Sets all the filter's parameters and recalculates coefficients.
     pub fn set_biquad(&mut self, filter_type: BiquadFilterType, fc: f32, q: f32, peak_gain: f32) {
         self.filter_type = filter_type;
         self.q = q;
@@ -78,11 +92,16 @@ impl BiquadFilter {
         self.set_peak_gain(peak_gain)
     }
 
+    /// Recalculates coefficients according to the filter's current parameters.
     pub fn calculate_biquad_coefficients(&mut self) {
-        let v = 10.0_f32.powf(self.peak_gain.abs() / 20.0);
+        // In Redmon's code, the absolute value of peak gain is used.
+        // I tried removing the absolute value operation to see if it would fix the cutting problem,
+        // (see below), but it does not fix it. It seems to work fine, so I'm leaving it without abs.
+        let v = 10.0_f32.powf(self.peak_gain / 20.0);
         let k = (PI * self.fc).tan();
 
         // FIXME: cut for parametric, low shelf, and high self is not cutting at all
+        // FIXME: lowpass and bandpass filters cause signal to be mono
         match self.filter_type {
             BiquadFilterType::LowPass => {
                 let norm = (1.0 + k / self.q + k * k).recip();
@@ -127,7 +146,7 @@ impl BiquadFilter {
                     self.b2 = (1.0 - self.q.recip() * k + k * k) * norm;
                 } else {
                     // cut
-                    let norm = (1.0 + self.q.recip() * k + k * k).recip();
+                    let norm = (1.0 + v / self.q * k + k * k).recip();
                     self.a0 = (1.0 + self.q.recip() * k + k * k) * norm;
                     self.a1 = 2.0 * (k * k - 1.0) * norm;
                     self.a2 = (1.0 - self.q.recip() * k + k * k) * norm;
