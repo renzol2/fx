@@ -1,4 +1,4 @@
-# Delay
+# Delay effects
 
 Delay-line effects are not only extremely common in music production, but also rather easy to implement digitally compared to analog counterparts.
 
