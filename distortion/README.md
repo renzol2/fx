@@ -13,7 +13,7 @@ Additional parameters:
 
 - [x] Input/output gain
 - [ ] Mixing of multiple distortion types into one signal (like AnalogObsession's COMPER and its compressor emulations)
-- [ ] Pre- and post- filtering (Signalsmith)
+- [x] Pre- and post- filtering (Signalsmith)
 
 DSP related features:
 
