@@ -1,5 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::{sync::atomic::AtomicBool};
 
 use biquad::{BiquadFilter, BiquadFilterType};
 use nih_plug::prelude::*;
@@ -9,10 +9,12 @@ mod biquad;
 pub struct Equalizer {
     params: Arc<EqualizerParams>,
     biquad: BiquadFilter,
-    should_update_filter: Arc<std::sync::atomic::AtomicBool>,
+    should_update_filter: Arc<AtomicBool>,
 }
 
-#[derive(Params)] struct EqualizerParams { /// The parameter's ID is used to identify the parameter in the wrappred plugin API. As long as
+#[derive(Params)]
+struct EqualizerParams {
+    /// The parameter's ID is used to identify the parameter in the wrappred plugin API. As long as
     /// these IDs remain constant, you can rename and reorder these fields as you wish. The
     /// parameters are exposed to the host in the same order they were defined. In this case, this
     /// gain parameter is stored as linear gain while the values are displayed in decibels.
@@ -28,7 +30,7 @@ pub struct Equalizer {
 
 impl Default for Equalizer {
     fn default() -> Self {
-        let should_update_filter = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let should_update_filter = Arc::new(AtomicBool::new(true));
         let params = Arc::new(EqualizerParams::new(should_update_filter.clone()));
         Self {
             params,
@@ -64,33 +66,35 @@ impl EqualizerParams {
                     factor: FloatRange::skew_factor(-2.2),
                 },
             )
-            .with_smoother(SmoothingStyle::Logarithmic(50.0))
-            .with_unit(" Hz")
             .with_callback(Arc::new({
                 let should_update_filter = should_update_filter.clone();
-                move |_| should_update_filter.store(true, std::sync::atomic::Ordering::SeqCst)
-            })),
+                move |_| should_update_filter.store(true, Ordering::SeqCst)
+            }))
+            .with_smoother(SmoothingStyle::Logarithmic(20.0))
+            .with_unit(" Hz")
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
             q: FloatParam::new(
                 "Q",
-                1.0,
+                0.7,
                 FloatRange::Skewed {
                     min: 0.1,
                     max: 18.0,
                     factor: FloatRange::skew_factor(-2.2),
                 },
             )
-            .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_callback(Arc::new({
                 let should_update_filter = should_update_filter.clone();
-                move |_| should_update_filter.store(true, std::sync::atomic::Ordering::SeqCst)
-            })),
+                move |_| should_update_filter.store(true, Ordering::SeqCst)
+            }))
+            .with_smoother(SmoothingStyle::Logarithmic(20.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
         }
     }
 }
 
 impl Plugin for Equalizer {
-    const NAME: &'static str = "Equalizer v0.0.2.9";
+    const NAME: &'static str = "Equalizer v0.0.5";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -140,29 +144,39 @@ impl Plugin for Equalizer {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        let sample_rate = _context.transport().sample_rate;
+
         // Check if we should update filter coefficients
-        // FIXME: this only updating once when changing the frequency; after updating once, it no longer updates...
         if self
             .should_update_filter
-            .compare_exchange(
-                true,
-                false,
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
-            )
+            .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
             let frequency = self.params.cutoff_frequency.smoothed.next();
             let q = self.params.q.smoothed.next();
 
-            let sample_rate = _context.transport().sample_rate;
-            let fc = frequency / sample_rate;
-            self.biquad.set_biquad(BiquadFilterType::LowPass, fc, q, 0.0);
+            let fc = 0.5 * frequency / sample_rate;
+            self.biquad
+                .set_biquad(BiquadFilterType::LowPass, fc, q, 0.0);
             self.biquad.calculate_biquad_coefficients();
         }
 
         for channel_samples in buffer.iter_samples() {
-            // Smoothing is optionally built into the parameters themselves
+            // Update cutoff frequency while smoothing
+            if self.params.cutoff_frequency.smoothed.is_smoothing() {
+                let cutoff_frequency_smoothed = self.params.cutoff_frequency.smoothed.next();
+                let fc = 0.5 * cutoff_frequency_smoothed / sample_rate;
+                self.biquad.set_fc(fc);
+                self.biquad.calculate_biquad_coefficients();
+            }
+
+            // Update Q while smoothing
+            if self.params.q.smoothed.is_smoothing() {
+                let q_smoothed = self.params.q.smoothed.next();
+                self.biquad.set_q(q_smoothed);
+                self.biquad.calculate_biquad_coefficients();
+            }
+
             let gain = self.params.gain.smoothed.next();
 
             for sample in channel_samples {
