@@ -6,18 +6,13 @@ use nih_plug::prelude::*;
 
 mod biquad;
 
-pub struct Equalizer {
-    params: Arc<EqualizerParams>,
+pub struct Equalizer { params: Arc<EqualizerParams>,
     biquad: BiquadFilter,
     should_update_filter: Arc<AtomicBool>,
 }
 
 #[derive(Params)]
 struct EqualizerParams {
-    /// The parameter's ID is used to identify the parameter in the wrappred plugin API. As long as
-    /// these IDs remain constant, you can rename and reorder these fields as you wish. The
-    /// parameters are exposed to the host in the same order they were defined. In this case, this
-    /// gain parameter is stored as linear gain while the values are displayed in decibels.
     #[id = "gain"]
     pub gain: FloatParam,
 
@@ -104,7 +99,7 @@ impl EqualizerParams {
 }
 
 impl Plugin for Equalizer {
-    const NAME: &'static str = "Equalizer v0.0.6";
+    const NAME: &'static str = "Equalizer v0.0.8";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -164,34 +159,32 @@ impl Plugin for Equalizer {
         {
             let frequency = self.params.cutoff_frequency.smoothed.next();
             let q = self.params.q.smoothed.next();
+            let gain = self.params.gain.smoothed.next();
             let filter_type = self.params.filter_type.value();
 
             let fc = 0.5 * frequency / sample_rate;
-            self.biquad.set_biquad(filter_type, fc, q, 0.0);
-            self.biquad.calculate_biquad_coefficients();
+            self.biquad.set_biquad(filter_type, fc, q, gain);
         }
 
         for channel_samples in buffer.iter_samples() {
-            // Update cutoff frequency while smoothing
+            // Update parameters while smoothing
             if self.params.cutoff_frequency.smoothed.is_smoothing() {
                 let cutoff_frequency_smoothed = self.params.cutoff_frequency.smoothed.next();
                 let fc = 0.5 * cutoff_frequency_smoothed / sample_rate;
                 self.biquad.set_fc(fc);
-                self.biquad.calculate_biquad_coefficients();
             }
-
-            // Update Q while smoothing
             if self.params.q.smoothed.is_smoothing() {
                 let q_smoothed = self.params.q.smoothed.next();
                 self.biquad.set_q(q_smoothed);
-                self.biquad.calculate_biquad_coefficients();
+            }
+            if self.params.gain.smoothed.is_smoothing() {
+                let gain_smoothed = self.params.gain.smoothed.next();
+                self.biquad.set_peak_gain(gain_smoothed);
             }
 
-            let gain = self.params.gain.smoothed.next();
-
+            // Process input
             for sample in channel_samples {
-                let processed = self.biquad.process(*sample);
-                *sample = processed * gain;
+                *sample = self.biquad.process(*sample);
             }
         }
 

@@ -7,7 +7,6 @@ pub enum BiquadFilterType {
     HighPass,
     BandPass,
     Notch,
-    AllPass,
     ParametricEQ,
     LowShelf,
     HighShelf,
@@ -83,6 +82,7 @@ impl BiquadFilter {
         let v = 10.0_f32.powf(self.peak_gain.abs() / 20.0);
         let k = (PI * self.fc).tan();
 
+        // FIXME: cut for parametric, low shelf, and high self is not cutting at all
         match self.filter_type {
             BiquadFilterType::LowPass => {
                 let norm = (1.0 + k / self.q + k * k).recip();
@@ -91,7 +91,7 @@ impl BiquadFilter {
                 self.a2 = self.a0;
                 self.b1 = 2.0 * (k * k - 1.0) * norm;
                 self.b2 = (1.0 - k / self.q + k * k) * norm;
-            },
+            }
             BiquadFilterType::HighPass => {
                 let norm = (1.0 + k / self.q + k * k).recip();
                 self.a0 = 1.0 * norm;
@@ -99,7 +99,7 @@ impl BiquadFilter {
                 self.a2 = self.a0;
                 self.b1 = 2.0 * (k * k - 1.0) * norm;
                 self.b2 = (1.0 - k / self.q + k * k) * norm;
-            },
+            }
             BiquadFilterType::BandPass => {
                 let norm = (1.0 + k / self.q + k * k).recip();
                 self.a0 = k / self.q * norm;
@@ -107,7 +107,7 @@ impl BiquadFilter {
                 self.a2 = -self.a0;
                 self.b1 = 2.0 * (k * k - 1.0) * norm;
                 self.b2 = (1.0 - k / self.q + k * k) * norm;
-            },
+            }
             BiquadFilterType::Notch => {
                 let norm = (1.0 + k / self.q + k * k).recip();
                 self.a0 = (1.0 + k * k) * norm;
@@ -115,16 +115,18 @@ impl BiquadFilter {
                 self.a2 = self.a0;
                 self.b1 = self.a1;
                 self.b2 = (1.0 - k / self.q + k * k) * norm;
-            },
+            }
             BiquadFilterType::ParametricEQ => {
-                if self.peak_gain >= 0.0 {  // boost
+                if self.peak_gain >= 0.0 {
+                    // boost
                     let norm = (1.0 + self.q.recip() * k + k * k).recip();
                     self.a0 = (1.0 + v / self.q * k + k * k) * norm;
                     self.a1 = 2.0 * (k * k - 1.0) * norm;
                     self.a2 = (1.0 - v / self.q * k + k * k) * norm;
                     self.b1 = self.a1;
                     self.b2 = (1.0 - self.q.recip() * k + k * k) * norm;
-                } else {  // cut
+                } else {
+                    // cut
                     let norm = (1.0 + self.q.recip() * k + k * k).recip();
                     self.a0 = (1.0 + self.q.recip() * k + k * k) * norm;
                     self.a1 = 2.0 * (k * k - 1.0) * norm;
@@ -132,16 +134,18 @@ impl BiquadFilter {
                     self.b1 = self.a1;
                     self.b2 = (1.0 - v / self.q * k + k * k) * norm;
                 }
-            },
+            }
             BiquadFilterType::LowShelf => {
-                if self.peak_gain >= 0.0 {  // boost
+                if self.peak_gain >= 0.0 {
+                    // boost
                     let norm = (1.0 + 2.0_f32.sqrt() * k + k * k).recip();
                     self.a0 = (1.0 + (2.0 * v).sqrt() * k + v * k * k) * norm;
                     self.a1 = 2.0 * (v * k * k - 1.0) * norm;
                     self.a2 = (1.0 - (2.0 * v).sqrt() * k + v * k * k) * norm;
                     self.b1 = 2.0 * (k * k - 1.0) * norm;
                     self.b2 = (1.0 - 2.0_f32.sqrt() * k + k * k) * norm;
-                } else {  // cut
+                } else {
+                    // cut
                     let norm = (1.0 + (2.0 * v).sqrt() * k + v * k * k).recip();
                     self.a0 = (1.0 + 2.0_f32.sqrt() * k + k * k) * norm;
                     self.a1 = 2.0 * (k * k - 1.0) * norm;
@@ -149,16 +153,18 @@ impl BiquadFilter {
                     self.b1 = 2.0 * (v * k * k - 1.0) * norm;
                     self.b2 = (1.0 - (2.0 * v).sqrt() * k + v * k * k) * norm;
                 }
-            },
+            }
             BiquadFilterType::HighShelf => {
-                if self.peak_gain >= 0.0 {  // boost
+                if self.peak_gain >= 0.0 {
+                    // boost
                     let norm = (1.0 + 2.0_f32.sqrt() * k + k * k).recip();
                     self.a0 = (v + (2.0 * v).sqrt() * k + k * k) * norm;
                     self.a1 = 2.0 * (k * k - v) * norm;
                     self.a2 = (v - (2.0 * v).sqrt() * k + k * k) * norm;
                     self.b1 = 2.0 * (k * k - 1.0) * norm;
                     self.b2 = (1.0 - 2.0_f32.sqrt() * k + k * k) * norm;
-                } else {  // cut
+                } else {
+                    // cut
                     let norm = (v + (2.0 * v).sqrt() * k + k * k).recip();
                     self.a0 = (1.0 + 2.0_f32.sqrt() * k + k * k) * norm;
                     self.a1 = 2.0 * (k * k - 1.0) * norm;
@@ -167,7 +173,6 @@ impl BiquadFilter {
                     self.b2 = (v - (2.0 * v).sqrt() * k + k * k) * norm;
                 }
             }
-            _ => {},
         }
     }
 
