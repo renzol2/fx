@@ -26,6 +26,9 @@ struct EqualizerParams {
 
     #[id = "q"]
     pub q: FloatParam,
+
+    #[id = "filter-type"]
+    pub filter_type: EnumParam<BiquadFilterType>,
 }
 
 impl Default for Equalizer {
@@ -89,12 +92,19 @@ impl EqualizerParams {
             }))
             .with_smoother(SmoothingStyle::Logarithmic(20.0))
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            filter_type: EnumParam::new("Type", BiquadFilterType::LowPass).with_callback(Arc::new(
+                {
+                    let should_update_filter = should_update_filter.clone();
+                    move |_| should_update_filter.store(true, Ordering::SeqCst)
+                },
+            )),
         }
     }
 }
 
 impl Plugin for Equalizer {
-    const NAME: &'static str = "Equalizer v0.0.5";
+    const NAME: &'static str = "Equalizer v0.0.6";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -154,10 +164,10 @@ impl Plugin for Equalizer {
         {
             let frequency = self.params.cutoff_frequency.smoothed.next();
             let q = self.params.q.smoothed.next();
+            let filter_type = self.params.filter_type.value();
 
             let fc = 0.5 * frequency / sample_rate;
-            self.biquad
-                .set_biquad(BiquadFilterType::LowPass, fc, q, 0.0);
+            self.biquad.set_biquad(filter_type, fc, q, 0.0);
             self.biquad.calculate_biquad_coefficients();
         }
 

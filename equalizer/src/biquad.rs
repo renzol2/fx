@@ -1,5 +1,7 @@
+use nih_plug::prelude::*;
 use std::f32::consts::PI;
 
+#[derive(Enum, Debug, PartialEq, Eq)]
 pub enum BiquadFilterType {
     LowPass,
     HighPass,
@@ -81,14 +83,92 @@ impl BiquadFilter {
         let v = 10.0_f32.powf(self.peak_gain.abs() / 20.0);
         let k = (PI * self.fc).tan();
 
-        // TODO: make this a match statement with filter types
-        // For now, default to LPF
-        let norm = (1.0 + k / self.q + k * k).recip();
-        self.a0 = k * k * norm;
-        self.a1 = 2.0 * self.a0;
-        self.a2 = self.a0;
-        self.b1 = 2.0 * (k * k - 1.0) * norm;
-        self.b2 = (1.0 - k / self.q + k * k) * norm;
+        match self.filter_type {
+            BiquadFilterType::LowPass => {
+                let norm = (1.0 + k / self.q + k * k).recip();
+                self.a0 = k * k * norm;
+                self.a1 = 2.0 * self.a0;
+                self.a2 = self.a0;
+                self.b1 = 2.0 * (k * k - 1.0) * norm;
+                self.b2 = (1.0 - k / self.q + k * k) * norm;
+            },
+            BiquadFilterType::HighPass => {
+                let norm = (1.0 + k / self.q + k * k).recip();
+                self.a0 = 1.0 * norm;
+                self.a1 = -2.0 * self.a0;
+                self.a2 = self.a0;
+                self.b1 = 2.0 * (k * k - 1.0) * norm;
+                self.b2 = (1.0 - k / self.q + k * k) * norm;
+            },
+            BiquadFilterType::BandPass => {
+                let norm = (1.0 + k / self.q + k * k).recip();
+                self.a0 = k / self.q * norm;
+                self.a1 = 0.0;
+                self.a2 = -self.a0;
+                self.b1 = 2.0 * (k * k - 1.0) * norm;
+                self.b2 = (1.0 - k / self.q + k * k) * norm;
+            },
+            BiquadFilterType::Notch => {
+                let norm = (1.0 + k / self.q + k * k).recip();
+                self.a0 = (1.0 + k * k) * norm;
+                self.a1 = 2.0 * (k * k - 1.0) * norm;
+                self.a2 = self.a0;
+                self.b1 = self.a1;
+                self.b2 = (1.0 - k / self.q + k * k) * norm;
+            },
+            BiquadFilterType::ParametricEQ => {
+                if self.peak_gain >= 0.0 {  // boost
+                    let norm = (1.0 + self.q.recip() * k + k * k).recip();
+                    self.a0 = (1.0 + v / self.q * k + k * k) * norm;
+                    self.a1 = 2.0 * (k * k - 1.0) * norm;
+                    self.a2 = (1.0 - v / self.q * k + k * k) * norm;
+                    self.b1 = self.a1;
+                    self.b2 = (1.0 - self.q.recip() * k + k * k) * norm;
+                } else {  // cut
+                    let norm = (1.0 + self.q.recip() * k + k * k).recip();
+                    self.a0 = (1.0 + self.q.recip() * k + k * k) * norm;
+                    self.a1 = 2.0 * (k * k - 1.0) * norm;
+                    self.a2 = (1.0 - self.q.recip() * k + k * k) * norm;
+                    self.b1 = self.a1;
+                    self.b2 = (1.0 - v / self.q * k + k * k) * norm;
+                }
+            },
+            BiquadFilterType::LowShelf => {
+                if self.peak_gain >= 0.0 {  // boost
+                    let norm = (1.0 + 2.0_f32.sqrt() * k + k * k).recip();
+                    self.a0 = (1.0 + (2.0 * v).sqrt() * k + v * k * k) * norm;
+                    self.a1 = 2.0 * (v * k * k - 1.0) * norm;
+                    self.a2 = (1.0 - (2.0 * v).sqrt() * k + v * k * k) * norm;
+                    self.b1 = 2.0 * (k * k - 1.0) * norm;
+                    self.b2 = (1.0 - 2.0_f32.sqrt() * k + k * k) * norm;
+                } else {  // cut
+                    let norm = (1.0 + (2.0 * v).sqrt() * k + v * k * k).recip();
+                    self.a0 = (1.0 + 2.0_f32.sqrt() * k + k * k) * norm;
+                    self.a1 = 2.0 * (k * k - 1.0) * norm;
+                    self.a2 = (1.0 - 2.0_f32.sqrt() * k + k * k) * norm;
+                    self.b1 = 2.0 * (v * k * k - 1.0) * norm;
+                    self.b2 = (1.0 - (2.0 * v).sqrt() * k + v * k * k) * norm;
+                }
+            },
+            BiquadFilterType::HighShelf => {
+                if self.peak_gain >= 0.0 {  // boost
+                    let norm = (1.0 + 2.0_f32.sqrt() * k + k * k).recip();
+                    self.a0 = (v + (2.0 * v).sqrt() * k + k * k) * norm;
+                    self.a1 = 2.0 * (k * k - v) * norm;
+                    self.a2 = (v - (2.0 * v).sqrt() * k + k * k) * norm;
+                    self.b1 = 2.0 * (k * k - 1.0) * norm;
+                    self.b2 = (1.0 - 2.0_f32.sqrt() * k + k * k) * norm;
+                } else {  // cut
+                    let norm = (v + (2.0 * v).sqrt() * k + k * k).recip();
+                    self.a0 = (1.0 + 2.0_f32.sqrt() * k + k * k) * norm;
+                    self.a1 = 2.0 * (k * k - 1.0) * norm;
+                    self.a2 = (1.0 - 2.0_f32.sqrt() * k + k * k) * norm;
+                    self.b1 = 2.0 * (k * k - v) * norm;
+                    self.b2 = (v - (2.0 * v).sqrt() * k + k * k) * norm;
+                }
+            }
+            _ => {},
+        }
     }
 
     pub fn process(&mut self, input: f32) -> f32 {
