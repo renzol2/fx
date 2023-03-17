@@ -1,54 +1,81 @@
 use nih_plug::prelude::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-struct Delay {
+mod delay_line;
+use delay_line::DelayLine;
+
+const MAX_DELAY_TIME_SECONDS: f32 = 5.0;
+
+pub struct Delay {
     params: Arc<DelayParams>,
+    delay_line: DelayLine,
+    should_update_delay_line: Arc<AtomicBool>,
 }
 
 #[derive(Params)]
 struct DelayParams {
-    /// The parameter's ID is used to identify the parameter in the wrappred plugin API. As long as
-    /// these IDs remain constant, you can rename and reorder these fields as you wish. The
-    /// parameters are exposed to the host in the same order they were defined. In this case, this
-    /// gain parameter is stored as linear gain while the values are displayed in decibels.
-    #[id = "gain"]
-    pub gain: FloatParam,
+    #[id = "feedback"]
+    pub feedback: FloatParam,
+
+    #[id = "dry-wet-ratio"]
+    pub dry_wet_ratio: FloatParam,
+
+    #[id = "delay-time"]
+    pub delay_time: FloatParam,
 }
 
 impl Default for Delay {
     fn default() -> Self {
+        let should_update_delay_line = Arc::new(AtomicBool::new(true));
         Self {
-            params: Arc::new(DelayParams::default()),
+            params: Arc::new(DelayParams::new(should_update_delay_line.clone())),
+            should_update_delay_line,
+            delay_line: DelayLine::new(44100 * MAX_DELAY_TIME_SECONDS as usize),
         }
     }
 }
 
-impl Default for DelayParams {
-    fn default() -> Self {
+impl DelayParams {
+    fn new(should_update_delay_line: Arc<AtomicBool>) -> Self {
         Self {
-            // This gain is stored as linear gain. NIH-plug comes with useful conversion functions
-            // to treat these kinds of parameters as if we were dealing with decibels. Storing this
-            // as decibels is easier to work with, but requires a conversion for every sample.
-            gain: FloatParam::new(
-                "Gain",
-                util::db_to_gain(0.0),
+            feedback: FloatParam::new("Feedback", 0.5, FloatRange::Linear { min: 0.0, max: 1.2 })
+                .with_callback(Arc::new({
+                    let should_update_delay_line = should_update_delay_line.clone();
+                    move |_| should_update_delay_line.store(true, Ordering::SeqCst)
+                }))
+                .with_smoother(SmoothingStyle::Linear(1.0))
+                // .with_unit(" %")
+                .with_value_to_string(formatters::v2s_f32_percentage(2))
+                .with_string_to_value(formatters::s2v_f32_percentage()),
+
+            dry_wet_ratio: FloatParam::new(
+                "Dry/wet",
+                0.5,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
+            )
+            .with_callback(Arc::new({
+                let should_update_delay_line = should_update_delay_line.clone();
+                move |_| should_update_delay_line.store(true, Ordering::SeqCst)
+            }))
+            .with_smoother(SmoothingStyle::Linear(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            delay_time: FloatParam::new(
+                "Time",
+                0.0,
                 FloatRange::Skewed {
-                    min: util::db_to_gain(-30.0),
-                    max: util::db_to_gain(30.0),
-                    // This makes the range appear as if it was linear when displaying the values as
-                    // decibels
-                    factor: FloatRange::gain_skew_factor(-30.0, 30.0),
+                    min: 0.1,
+                    max: MAX_DELAY_TIME_SECONDS * 1000.0,
+                    factor: FloatRange::skew_factor(-2.2),
                 },
             )
-            // Because the gain parameter is stored as linear gain instead of storing the value as
-            // decibels, we need logarithmic smoothing
-            .with_smoother(SmoothingStyle::Logarithmic(50.0))
-            .with_unit(" dB")
-            // There are many predefined formatters we can use here. If the gain was stored as
-            // decibels instead of as a linear gain value, we could have also used the
-            // `.with_step_size(0.1)` function to get internal rounding.
-            .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
-            .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+            .with_callback(Arc::new({
+                let should_update_delay_line = should_update_delay_line.clone();
+                move |_| should_update_delay_line.store(true, Ordering::SeqCst)
+            }))
+            .with_smoother(SmoothingStyle::Linear(2.0))
+            .with_unit(" ms"),
         }
     }
 }
@@ -75,7 +102,6 @@ impl Plugin for Delay {
         // only one input and output channel would be called 'Mono'.
         names: PortNames::const_default(),
     }];
-
 
     const MIDI_INPUT: MidiConfig = MidiConfig::None;
     const MIDI_OUTPUT: MidiConfig = MidiConfig::None;
@@ -104,6 +130,9 @@ impl Plugin for Delay {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
+        let fs = _buffer_config.sample_rate;
+        self.delay_line
+            .set_delay_time(self.params.delay_time.value(), fs);
         true
     }
 
@@ -118,12 +147,18 @@ impl Plugin for Delay {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        let sample_rate = _context.transport().sample_rate;
+        if self
+            .should_update_delay_line
+            .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            // TODO: set delay time and feedback if params have changed
+        }
         for channel_samples in buffer.iter_samples() {
-            // Smoothing is optionally built into the parameters themselves
-            let gain = self.params.gain.smoothed.next();
-
+            // TODO: if necessary, set delay time while parameter is smoothing
             for sample in channel_samples {
-                *sample *= gain;
+                *sample *= self.delay_line.process(*sample);
             }
         }
 
@@ -149,5 +184,4 @@ impl Vst3Plugin for Delay {
         &[Vst3SubCategory::Fx, Vst3SubCategory::Dynamics];
 }
 
-nih_export_clap!(Delay);
 nih_export_vst3!(Delay);

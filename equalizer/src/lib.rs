@@ -6,7 +6,8 @@ use nih_plug::prelude::*;
 
 mod biquad;
 
-pub struct Equalizer { params: Arc<EqualizerParams>,
+pub struct Equalizer {
+    params: Arc<EqualizerParams>,
     biquad: BiquadFilter,
     should_update_filter: Arc<AtomicBool>,
 }
