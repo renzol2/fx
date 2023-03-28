@@ -153,10 +153,30 @@ impl Plugin for Delay {
             .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
-            // TODO: set delay time and feedback if params have changed
+            // Set delay time and feedback if params have changed
+            let delay_time_ms = self.params.delay_time.smoothed.next();
+            let feedback = self.params.feedback.smoothed.next();
+            let dry_wet = self.params.dry_wet_ratio.smoothed.next();
+            self.delay_line.set_delay_time(delay_time_ms, sample_rate);
+            self.delay_line.set_feedback(feedback);
+            self.delay_line.set_dry_wet(1.0 - dry_wet, dry_wet);
         }
         for channel_samples in buffer.iter_samples() {
-            // TODO: if necessary, set delay time while parameter is smoothing
+            // Set parameters while smoothing
+            if self.params.delay_time.smoothed.is_smoothing() {
+                let delay_time_ms = self.params.delay_time.smoothed.next();
+                self.delay_line.set_delay_time(delay_time_ms, sample_rate)
+            }
+            if self.params.feedback.smoothed.is_smoothing() {
+                let feedback = self.params.feedback.smoothed.next();
+                self.delay_line.set_feedback(feedback);
+            }
+            if self.params.dry_wet_ratio.smoothed.is_smoothing() {
+                let dry_wet = self.params.dry_wet_ratio.smoothed.next();
+                self.delay_line.set_dry_wet(1.0 - dry_wet, dry_wet);
+            }
+
+            // Apply delay
             for sample in channel_samples {
                 *sample *= self.delay_line.process(*sample);
             }
