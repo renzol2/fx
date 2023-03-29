@@ -45,7 +45,7 @@ impl DelayParams {
                     move |_| should_update_delay_line.store(true, Ordering::SeqCst)
                 }))
                 .with_smoother(SmoothingStyle::Linear(1.0))
-                // .with_unit(" %")
+                .with_unit(" %")
                 .with_value_to_string(formatters::v2s_f32_percentage(2))
                 .with_string_to_value(formatters::s2v_f32_percentage()),
 
@@ -75,13 +75,14 @@ impl DelayParams {
                 move |_| should_update_delay_line.store(true, Ordering::SeqCst)
             }))
             .with_smoother(SmoothingStyle::Linear(2.0))
-            .with_unit(" ms"),
+            .with_unit(" ms")
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
         }
     }
 }
 
 impl Plugin for Delay {
-    const NAME: &'static str = "Delay";
+    const NAME: &'static str = "Delay v0.0.1";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -178,7 +179,7 @@ impl Plugin for Delay {
 
             // Apply delay
             for sample in channel_samples {
-                *sample *= self.delay_line.process(*sample);
+                *sample = self.delay_line.process(*sample);
             }
         }
 
