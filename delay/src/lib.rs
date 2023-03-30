@@ -82,7 +82,7 @@ impl DelayParams {
 }
 
 impl Plugin for Delay {
-    const NAME: &'static str = "Delay v0.0.1";
+    const NAME: &'static str = "Delay v0.0.2";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
