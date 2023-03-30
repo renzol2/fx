@@ -63,11 +63,11 @@ impl DelayParams {
 
             delay_time: FloatParam::new(
                 "Time",
-                0.0,
+                300.0,
                 FloatRange::Skewed {
                     min: 0.1,
                     max: MAX_DELAY_TIME_SECONDS * 1000.0,
-                    factor: FloatRange::skew_factor(-2.2),
+                    factor: FloatRange::skew_factor(-1.0),
                 },
             )
             .with_callback(Arc::new({
@@ -132,6 +132,8 @@ impl Plugin for Delay {
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
         let fs = _buffer_config.sample_rate;
+        self.delay_line
+            .resize_buffer((fs * MAX_DELAY_TIME_SECONDS) as usize);
         self.delay_line
             .set_delay_time(self.params.delay_time.value(), fs);
         true
