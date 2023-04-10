@@ -6,6 +6,7 @@ pub struct DelayLine {
     dry_mix: f32,
     wet_mix: f32,
     feedback: f32,
+    lfo_phase: f32,
 }
 
 impl DelayLine {
@@ -91,5 +92,47 @@ impl DelayLine {
         }
 
         output
+    }
+
+    pub fn process_with_vibrato(
+        &mut self,
+        input: f32,
+        lfo_frequency: f32,
+        vibrato_width: f32,
+        sample_rate: f32,
+    ) -> f32 {
+        // Recalculate read pointer with respect to write pointer
+        let current_delay = vibrato_width * (0.5 + 0.5 * (2.0 * PI * self.lfo_phase).sinf());
+        let buffer_len = self.buffer.len() as f32;
+        let interpolated_rp =
+            (self.read_pointer as f32 - (current_delay * sample_rate) as f32 + buffer_len - 3.0)
+                % buffer_len;
+        
+        // Use linear interpolation to read a fractional index
+        // into the buffer by using the fractional component of
+        // the read pointer to adjust weights of adjacent samples
+        let fraction = interpolated_rp - interpolated_rp.floor();
+        let previous_sample = interpolated_rp.floor() as usize;
+        let next_sample = (previous_sample + 1) % self.buffer.len();
+        let interpolated_sample = (fraction * self.circular_buffer[next_sample])
+            + (1.0 - fraction) * self.circular_buffer[previous_sample];
+
+        // Store information in buffer
+        self.circular_buffer[write_pointer] = input;
+
+        // Increment write pointer at constant rate
+        self.write_pointer += 1;
+
+        if self.write_pointer >= self.circular_buffer.len() {
+            self.write_pointer = 0;
+        }
+
+        // Update LFO phase
+        self.lfo_phase += lfo_frequency * sample_rate;
+        if (self.lfo_phase >= 1.0) {
+            self.lfo_phase -= 1.0;
+        }
+
+        interpolated_sample
     }
 }

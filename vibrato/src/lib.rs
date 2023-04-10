@@ -1,12 +1,14 @@
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
-// This is a shortened version of the gain example with most comments removed, check out
-// https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/gain/src/lib.rs to get
-// started
+mod delay_line;
+use delay_line::DelayLine;
+
+const MAX_DELAY_TIME_SECONDS: f32 = 5.0;
 
 struct Vibrato {
     params: Arc<VibratoParams>,
+    delay_line: DelayLine,
 }
 
 #[derive(Params)]
@@ -25,6 +27,7 @@ impl Default for Vibrato {
     fn default() -> Self {
         Self {
             params: Arc::new(VibratoParams::default()),
+            delay_line: DelayLine::new(44100 * MAX_DELAY_TIME_SECONDS as usize),
         }
     }
 }
@@ -117,6 +120,9 @@ impl Plugin for Vibrato {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
+        let fs = _buffer_config.sample_rate;
+        self.delay_line
+            .resize_buffer((fs * MAX_DELAY_TIME_SECONDS) as usize);
         true
     }
 
@@ -131,12 +137,20 @@ impl Plugin for Vibrato {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        let sample_rate = _context.transport().sample_rate;
         for channel_samples in buffer.iter_samples() {
             // Smoothing is optionally built into the parameters themselves
             let gain = self.params.gain.smoothed.next();
+            let lfo_frequency = self.parmas.lfo_frequency.smoothed.next();
+            let vibrato_width = self.parmas.vibrato_width.smoothed.next();
 
             for sample in channel_samples {
-                *sample *= gain;
+                *sample = self.delay_line.process_with_vibrato(
+                    *sample,
+                    lfo_frequency,
+                    vibrato_width,
+                    sample_rate,
+                ) * gain;
             }
         }
 
