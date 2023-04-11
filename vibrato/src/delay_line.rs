@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 pub struct DelayLine {
     circular_buffer: Vec<f32>,
     read_pointer: usize,
@@ -21,6 +23,7 @@ impl DelayLine {
             wet_mix: 1.0,
             feedback: 0.5,
             delay_time: 0,
+            lfo_phase: 0.0,
         }
     }
 
@@ -56,6 +59,30 @@ impl DelayLine {
     ///
     pub fn resize_buffer(&mut self, new_size: usize) {
         self.circular_buffer.resize(new_size, 0.0);
+    }
+
+    fn get_interpolated_sample(&self, lfo_width: f32, sample_rate: f32, phase_shift: f32) -> f32 {
+        // Recalculate read pointer with respect to write pointer
+        let mut lfo_phase = self.lfo_phase + phase_shift;
+        if lfo_phase >= 1.0 {
+            lfo_phase -= 1.0;
+        }
+        let phase_component = 2.0 * PI * lfo_phase;
+        let current_delay = lfo_width * (0.5 + 0.5 * phase_component.sin());
+        let buffer_len = self.circular_buffer.len() as f32;
+        let mut interpolated_rp =
+            self.write_pointer as f32 - (current_delay * sample_rate) as f32 + buffer_len - 3.0;
+        interpolated_rp %= buffer_len;
+
+        // Use linear interpolation to read a fractional index
+        // into the buffer by using the fractional component of
+        // the read pointer to adjust weights of adjacent samples
+        let fraction = interpolated_rp - interpolated_rp.floor();
+        let previous_sample = interpolated_rp.floor() as usize;
+        let next_sample = (previous_sample + 1) % buffer_len as usize;
+
+        fraction * self.circular_buffer[next_sample]
+            + (1.0 - fraction) * self.circular_buffer[previous_sample]
     }
 
     pub fn process(&mut self, input: f32) -> f32 {
@@ -101,24 +128,40 @@ impl DelayLine {
         vibrato_width: f32,
         sample_rate: f32,
     ) -> f32 {
-        // Recalculate read pointer with respect to write pointer
-        let current_delay = vibrato_width * (0.5 + 0.5 * (2.0 * PI * self.lfo_phase).sinf());
-        let buffer_len = self.buffer.len() as f32;
-        let interpolated_rp =
-            (self.read_pointer as f32 - (current_delay * sample_rate) as f32 + buffer_len - 3.0)
-                % buffer_len;
-        
-        // Use linear interpolation to read a fractional index
-        // into the buffer by using the fractional component of
-        // the read pointer to adjust weights of adjacent samples
-        let fraction = interpolated_rp - interpolated_rp.floor();
-        let previous_sample = interpolated_rp.floor() as usize;
-        let next_sample = (previous_sample + 1) % self.buffer.len();
-        let interpolated_sample = (fraction * self.circular_buffer[next_sample])
-            + (1.0 - fraction) * self.circular_buffer[previous_sample];
+        let interpolated_sample = self.get_interpolated_sample(vibrato_width, sample_rate, 0.0);
 
         // Store information in buffer
-        self.circular_buffer[write_pointer] = input;
+        self.circular_buffer[self.write_pointer] = input;
+
+        // Increment write pointer at constant rate
+        self.write_pointer += 1;
+
+        if self.write_pointer >= self.circular_buffer.len() {
+            self.write_pointer = 0;
+        }
+
+        // Update LFO phase
+        self.lfo_phase += lfo_frequency * sample_rate.recip();
+        if self.lfo_phase >= 1.0 {
+            self.lfo_phase -= 1.0;
+        }
+
+        interpolated_sample
+    }
+
+    pub fn process_with_flanger(
+        &mut self,
+        input: f32,
+        lfo_frequency: f32,
+        vibrato_width: f32,
+        sample_rate: f32,
+        feedback: f32,
+        depth: f32,
+    ) -> f32 {
+        let interpolated_sample = self.get_interpolated_sample(vibrato_width, sample_rate, 0.0);
+
+        // Store information in buffer
+        self.circular_buffer[self.write_pointer] = input + (interpolated_sample * feedback);
 
         // Increment write pointer at constant rate
         self.write_pointer += 1;
@@ -129,10 +172,71 @@ impl DelayLine {
 
         // Update LFO phase
         self.lfo_phase += lfo_frequency * sample_rate;
-        if (self.lfo_phase >= 1.0) {
+        if self.lfo_phase >= 1.0 {
             self.lfo_phase -= 1.0;
         }
 
-        interpolated_sample
+        input + depth * interpolated_sample
+    }
+
+    pub fn process_with_chorus(
+        &mut self,
+        input: f32,
+        lfo_frequency: f32,
+        vibrato_width: f32,
+        sample_rate: f32,
+        depth: f32,
+    ) -> f32 {
+        let interpolated_sample = self.get_interpolated_sample(vibrato_width, sample_rate, 0.0);
+
+        // Store information in buffer
+        self.circular_buffer[self.write_pointer] = input;
+
+        // Increment write pointer at constant rate
+        self.write_pointer += 1;
+
+        if self.write_pointer >= self.circular_buffer.len() {
+            self.write_pointer = 0;
+        }
+
+        // Update LFO phase
+        self.lfo_phase += lfo_frequency * sample_rate;
+        if self.lfo_phase >= 1.0 {
+            self.lfo_phase -= 1.0;
+        }
+
+        input + depth * interpolated_sample
+    }
+
+    pub fn process_with_stereo_chorus(
+        &mut self,
+        input: f32,
+        lfo_frequency: f32,
+        vibrato_width: f32,
+        sample_rate: f32,
+        depth: f32,
+    ) -> (f32, f32) {
+        let interpolated_sample_l = self.get_interpolated_sample(vibrato_width, sample_rate, 0.0);
+        let interpolated_sample_r = self.get_interpolated_sample(vibrato_width, sample_rate, 0.25);
+
+        // Store information in buffer
+        self.circular_buffer[self.write_pointer] = input;
+
+        // Increment write pointer at constant rate
+        self.write_pointer += 1;
+
+        if self.write_pointer >= self.circular_buffer.len() {
+            self.write_pointer = 0;
+        }
+
+        // Update LFO phase
+        self.lfo_phase += lfo_frequency * sample_rate;
+        if self.lfo_phase >= 1.0 {
+            self.lfo_phase -= 1.0;
+        }
+
+        let output_l = input + depth * interpolated_sample_l;
+        let output_r = input + depth * interpolated_sample_r;
+        (output_l, output_r)
     }
 }

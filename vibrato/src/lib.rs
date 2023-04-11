@@ -6,7 +6,7 @@ use delay_line::DelayLine;
 
 const MAX_DELAY_TIME_SECONDS: f32 = 5.0;
 
-struct Vibrato {
+pub struct Vibrato {
     params: Arc<VibratoParams>,
     delay_line: DelayLine,
 }
@@ -52,7 +52,11 @@ impl Default for VibratoParams {
             lfo_frequency: FloatParam::new(
                 "LFO Frequency",
                 0.5,
-                FloatRange::Linear { min: 0.1, max: 1.0 },
+                FloatRange::Skewed {
+                    min: 0.0,
+                    max: 3.0,
+                    factor: FloatRange::skew_factor(-2.0),
+                },
             )
             .with_smoother(SmoothingStyle::Logarithmic(20.0))
             .with_unit(" Hz")
@@ -60,18 +64,22 @@ impl Default for VibratoParams {
 
             vibrato_width: FloatParam::new(
                 "Vibrato width",
-                0.1,
-                FloatRange::Linear { min: 0.0, max: 0.5 },
+                0.05,
+                FloatRange::Skewed {
+                    min: 0.0,
+                    max: 3.0,
+                    factor: FloatRange::skew_factor(-2.0),
+                },
             )
             .with_smoother(SmoothingStyle::Logarithmic(20.0))
             .with_unit(" freq. ratio")
-            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+            .with_value_to_string(formatters::v2s_f32_rounded(3)),
         }
     }
 }
 
 impl Plugin for Vibrato {
-    const NAME: &'static str = "Vibrato";
+    const NAME: &'static str = "Vibrato v0.0.3";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -141,8 +149,8 @@ impl Plugin for Vibrato {
         for channel_samples in buffer.iter_samples() {
             // Smoothing is optionally built into the parameters themselves
             let gain = self.params.gain.smoothed.next();
-            let lfo_frequency = self.parmas.lfo_frequency.smoothed.next();
-            let vibrato_width = self.parmas.vibrato_width.smoothed.next();
+            let lfo_frequency = self.params.lfo_frequency.smoothed.next();
+            let vibrato_width = self.params.vibrato_width.smoothed.next();
 
             for sample in channel_samples {
                 *sample = self.delay_line.process_with_vibrato(
@@ -176,5 +184,5 @@ impl Vst3Plugin for Vibrato {
         &[Vst3SubCategory::Fx, Vst3SubCategory::Dynamics];
 }
 
-nih_export_clap!(Vibrato);
+// nih_export_clap!(Vibrato);
 nih_export_vst3!(Vibrato);
