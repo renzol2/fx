@@ -4,11 +4,16 @@ use std::sync::Arc;
 mod delay_line;
 use delay_line::DelayLine;
 
+mod oversampling;
+use oversampling::HalfbandFilter;
+
 const MAX_DELAY_TIME_SECONDS: f32 = 5.0;
 
 pub struct Vibrato {
     params: Arc<VibratoParams>,
     delay_line: DelayLine,
+    upsampler: HalfbandFilter,
+    downsampler: HalfbandFilter,
 }
 
 #[derive(Params)]
@@ -28,6 +33,8 @@ impl Default for Vibrato {
         Self {
             params: Arc::new(VibratoParams::default()),
             delay_line: DelayLine::new(44100 * MAX_DELAY_TIME_SECONDS as usize),
+            upsampler: HalfbandFilter::new(8, true),
+            downsampler: HalfbandFilter::new(8, true),
         }
     }
 }
@@ -51,9 +58,9 @@ impl Default for VibratoParams {
 
             lfo_frequency: FloatParam::new(
                 "LFO Frequency",
-                0.5,
+                0.1,
                 FloatRange::Skewed {
-                    min: 0.0,
+                    min: 0.001,
                     max: 3.0,
                     factor: FloatRange::skew_factor(-2.0),
                 },
@@ -64,9 +71,9 @@ impl Default for VibratoParams {
 
             vibrato_width: FloatParam::new(
                 "Vibrato width",
-                0.05,
+                0.02,
                 FloatRange::Skewed {
-                    min: 0.0,
+                    min: 0.001,
                     max: 3.0,
                     factor: FloatRange::skew_factor(-2.0),
                 },
@@ -79,7 +86,7 @@ impl Default for VibratoParams {
 }
 
 impl Plugin for Vibrato {
-    const NAME: &'static str = "Vibrato v0.0.3";
+    const NAME: &'static str = "Vibrato v0.0.4";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -145,6 +152,7 @@ impl Plugin for Vibrato {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        // FIXME: the vibrato has a bit of aliasing... can we add oversampling maybe
         let sample_rate = _context.transport().sample_rate;
         for channel_samples in buffer.iter_samples() {
             // Smoothing is optionally built into the parameters themselves
@@ -153,12 +161,22 @@ impl Plugin for Vibrato {
             let vibrato_width = self.params.vibrato_width.smoothed.next();
 
             for sample in channel_samples {
-                *sample = self.delay_line.process_with_vibrato(
-                    *sample,
-                    lfo_frequency,
-                    vibrato_width,
-                    sample_rate,
-                ) * gain;
+                // Perform 4x oversampling
+                let input = *sample;
+                let mut frame = [input, 0., 0., 0.];
+
+                for i in 0..frame.len() {
+                    frame[i] = self.upsampler.process(frame[i]);
+                    frame[i] = self.delay_line.process_with_vibrato(
+                        *sample,
+                        lfo_frequency,
+                        vibrato_width,
+                        sample_rate,
+                    ) * gain;
+                    frame[i] = self.downsampler.process(frame[i]);
+                }
+
+                *sample = frame[0];
             }
         }
 
