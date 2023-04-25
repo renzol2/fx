@@ -1,8 +1,8 @@
 use nih_plug::prelude::*;
-use std::{sync::Arc};
+use std::sync::Arc;
 
 mod delay_line;
-use delay_line::{StereoVibrato};
+use delay_line::StereoVibrato;
 
 mod oversampling;
 
@@ -29,6 +29,9 @@ struct VibratoParams {
 
     #[id = "flutter"]
     pub flutter: FloatParam,
+
+    #[id = "width"]
+    pub width: FloatParam,
 }
 
 impl Default for Vibrato {
@@ -83,12 +86,23 @@ impl Default for VibratoParams {
             )
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            width: FloatParam::new(
+                "Width",
+                0.0,
+                FloatRange::Linear {
+                    min: PARAMETER_MINIMUM,
+                    max: 1.0,
+                },
+            )
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
         }
     }
 }
 
 impl Plugin for Vibrato {
-    const NAME: &'static str = "Vibrato v0.0.14";
+    const NAME: &'static str = "Vibrato v0.0.15";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -161,7 +175,9 @@ impl Plugin for Vibrato {
             let gain = self.params.gain.smoothed.next();
             let wow = self.params.wow.smoothed.next();
             let flutter = self.params.flutter.smoothed.next();
+            let width = self.params.width.smoothed.next();
 
+            let phase_offset = width * 0.5; // only offset right phase by a maximum of 180 degrees
             let sample_l = *channel_samples.get_mut(0).unwrap();
             let sample_r = *channel_samples.get_mut(1).unwrap();
 
@@ -171,9 +187,9 @@ impl Plugin for Vibrato {
             if wow > PARAMETER_MINIMUM {
                 processed_samples = self.wow_vibrato.process_with_vibrato(
                     processed_samples,
-                    // FIXME: no need to divide by 2 now
-                    WOW_MAX_LFO_FREQUENCY / 2.,
+                    WOW_MAX_LFO_FREQUENCY,
                     wow * WOW_MAX_FREQUENCY_RATIO,
+                    phase_offset,
                 );
             }
 
@@ -181,9 +197,9 @@ impl Plugin for Vibrato {
             if flutter > PARAMETER_MINIMUM {
                 processed_samples = self.flutter_vibrato.process_with_vibrato(
                     processed_samples,
-                    // FIXME: no need to divide by 2 now
-                    FLUTTER_MAX_LFO_FREQUENCY / 2.,
+                    FLUTTER_MAX_LFO_FREQUENCY,
                     flutter * FLUTTER_MAX_FREQUENCY_RATIO,
+                    phase_offset,
                 );
             }
 
