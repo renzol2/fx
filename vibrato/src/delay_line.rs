@@ -167,8 +167,7 @@ impl DelayLine {
         }
 
         // Update LFO phase
-        // FIXME: multiplying by 0.5 because the frequency doesn't seem to line up
-        self.lfo_phase += 0.5 * lfo_frequency * sample_rate.recip();
+        self.lfo_phase += lfo_frequency * sample_rate.recip();
         if self.lfo_phase >= 1.0 {
             self.lfo_phase -= 1.0;
         }
