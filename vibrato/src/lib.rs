@@ -1,8 +1,8 @@
 use nih_plug::prelude::*;
-use std::sync::Arc;
+use std::{sync::Arc};
 
 mod delay_line;
-use delay_line::DelayLine;
+use delay_line::{StereoVibrato};
 
 mod oversampling;
 
@@ -15,10 +15,8 @@ const PARAMETER_MINIMUM: f32 = 0.01;
 
 pub struct Vibrato {
     params: Arc<VibratoParams>,
-    wow_delay_line: DelayLine,
-    flutter_delay_line: DelayLine,
-    delay_line_l: DelayLine,
-    // delay_line_r: DelayLine,
+    wow_vibrato: StereoVibrato,
+    flutter_vibrato: StereoVibrato,
 }
 
 #[derive(Params)]
@@ -26,11 +24,6 @@ struct VibratoParams {
     #[id = "gain"]
     pub gain: FloatParam,
 
-    // #[id = "lfo-frequency"]
-    // pub lfo_frequency: FloatParam,
-
-    // #[id = "vibrato-width"]
-    // pub vibrato_width: FloatParam,
     #[id = "wow"]
     pub wow: FloatParam,
 
@@ -40,12 +33,12 @@ struct VibratoParams {
 
 impl Default for Vibrato {
     fn default() -> Self {
+        // This sample rate can change once the plugin is initialized
+        let default_sample_rate = 44100;
         Self {
             params: Arc::new(VibratoParams::default()),
-            delay_line_l: DelayLine::new(44100 * MAX_DELAY_TIME_SECONDS as usize),
-            // delay_line_r: DelayLine::new(44100 * MAX_DELAY_TIME_SECONDS as usize),
-            wow_delay_line: DelayLine::new(44100 * MAX_DELAY_TIME_SECONDS as usize),
-            flutter_delay_line: DelayLine::new(44100 * MAX_DELAY_TIME_SECONDS as usize),
+            wow_vibrato: StereoVibrato::new(MAX_DELAY_TIME_SECONDS, default_sample_rate),
+            flutter_vibrato: StereoVibrato::new(MAX_DELAY_TIME_SECONDS, default_sample_rate),
         }
     }
 }
@@ -67,31 +60,6 @@ impl Default for VibratoParams {
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
 
-            // lfo_frequency: FloatParam::new(
-            //     "LFO Frequency",
-            //     0.1,
-            //     FloatRange::Skewed {
-            //         min: 0.001,
-            //         max: 3.0,
-            //         factor: FloatRange::skew_factor(-2.0),
-            //     },
-            // )
-            // .with_smoother(SmoothingStyle::Logarithmic(50.0))
-            // .with_unit(" Hz")
-            // .with_value_to_string(formatters::v2s_f32_rounded(2)),
-
-            // vibrato_width: FloatParam::new(
-            //     "Vibrato width",
-            //     0.02,
-            //     FloatRange::Skewed {
-            //         min: 0.001,
-            //         max: 3.0,
-            //         factor: FloatRange::skew_factor(-2.0),
-            //     },
-            // )
-            // .with_smoother(SmoothingStyle::Logarithmic(50.0))
-            // .with_unit(" freq. ratio")
-            // .with_value_to_string(formatters::v2s_f32_rounded(3)),
             wow: FloatParam::new(
                 "Wow",
                 0.3,
@@ -120,7 +88,7 @@ impl Default for VibratoParams {
 }
 
 impl Plugin for Vibrato {
-    const NAME: &'static str = "Vibrato v0.0.13";
+    const NAME: &'static str = "Vibrato v0.0.14";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -170,14 +138,10 @@ impl Plugin for Vibrato {
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
         let fs = _buffer_config.sample_rate;
-        self.delay_line_l
-            .resize_buffer((fs * MAX_DELAY_TIME_SECONDS) as usize);
-        // self.delay_line_r
-        //     .resize_buffer((fs * MAX_DELAY_TIME_SECONDS) as usize);
-        self.wow_delay_line
-            .resize_buffer((fs * MAX_DELAY_TIME_SECONDS) as usize);
-        self.flutter_delay_line
-            .resize_buffer((fs * MAX_DELAY_TIME_SECONDS) as usize);
+        self.wow_vibrato
+            .resize_buffers(MAX_DELAY_TIME_SECONDS, fs as usize);
+        self.flutter_vibrato
+            .resize_buffers(MAX_DELAY_TIME_SECONDS, fs as usize);
         true
     }
 
@@ -192,37 +156,39 @@ impl Plugin for Vibrato {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        let sample_rate = _context.transport().sample_rate;
-        for channel_samples in buffer.iter_samples() {
+        for mut channel_samples in buffer.iter_samples() {
             // Smoothing is optionally built into the parameters themselves
             let gain = self.params.gain.smoothed.next();
             let wow = self.params.wow.smoothed.next();
             let flutter = self.params.flutter.smoothed.next();
 
-            for sample in channel_samples {
-                let mut processed_sample = *sample;
-                // Apply wow
-                if wow > PARAMETER_MINIMUM {
-                    processed_sample = self.wow_delay_line.process_with_vibrato(
-                        processed_sample,
-                        WOW_MAX_LFO_FREQUENCY / 2.,
-                        wow * WOW_MAX_FREQUENCY_RATIO,
-                        sample_rate,
-                    );
-                }
+            let sample_l = *channel_samples.get_mut(0).unwrap();
+            let sample_r = *channel_samples.get_mut(1).unwrap();
 
-                // Apply flutter
-                if flutter > PARAMETER_MINIMUM {
-                    processed_sample = self.flutter_delay_line.process_with_vibrato(
-                        processed_sample,
-                        FLUTTER_MAX_LFO_FREQUENCY / 2.,
-                        flutter * FLUTTER_MAX_FREQUENCY_RATIO,
-                        sample_rate,
-                    );
-                }
+            let mut processed_samples = (sample_l, sample_r);
 
-                *sample = processed_sample * gain;
+            // Apply wow
+            if wow > PARAMETER_MINIMUM {
+                processed_samples = self.wow_vibrato.process_with_vibrato(
+                    processed_samples,
+                    // FIXME: no need to divide by 2 now
+                    WOW_MAX_LFO_FREQUENCY / 2.,
+                    wow * WOW_MAX_FREQUENCY_RATIO,
+                );
             }
+
+            // Apply flutter
+            if flutter > PARAMETER_MINIMUM {
+                processed_samples = self.flutter_vibrato.process_with_vibrato(
+                    processed_samples,
+                    // FIXME: no need to divide by 2 now
+                    FLUTTER_MAX_LFO_FREQUENCY / 2.,
+                    flutter * FLUTTER_MAX_FREQUENCY_RATIO,
+                );
+            }
+
+            *channel_samples.get_mut(0).unwrap() = processed_samples.0 * gain;
+            *channel_samples.get_mut(1).unwrap() = processed_samples.1 * gain;
         }
 
         ProcessStatus::Normal
