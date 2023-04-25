@@ -65,7 +65,7 @@ impl Default for VibratoParams {
                     factor: FloatRange::skew_factor(-2.0),
                 },
             )
-            .with_smoother(SmoothingStyle::Logarithmic(20.0))
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_unit(" Hz")
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
@@ -78,7 +78,7 @@ impl Default for VibratoParams {
                     factor: FloatRange::skew_factor(-2.0),
                 },
             )
-            .with_smoother(SmoothingStyle::Logarithmic(20.0))
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_unit(" freq. ratio")
             .with_value_to_string(formatters::v2s_f32_rounded(3)),
         }
@@ -86,7 +86,7 @@ impl Default for VibratoParams {
 }
 
 impl Plugin for Vibrato {
-    const NAME: &'static str = "Vibrato v0.0.4";
+    const NAME: &'static str = "Vibrato v0.0.7";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -198,8 +198,11 @@ impl Vst3Plugin for Vibrato {
     const VST3_CLASS_ID: [u8; 16] = *b"renzol2__vibrato";
 
     // And also don't forget to change these categories
-    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Fx, Vst3SubCategory::Dynamics];
+    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[
+        Vst3SubCategory::Fx,
+        Vst3SubCategory::PitchShift,
+        Vst3SubCategory::Stereo,
+    ];
 }
 
 // nih_export_clap!(Vibrato);

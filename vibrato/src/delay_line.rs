@@ -61,6 +61,42 @@ impl DelayLine {
         self.circular_buffer.resize(new_size, 0.0);
     }
 
+    ///
+    /// Calculates value at time `t` using cubic interpolation.
+    /// https://www.musicdsp.org/en/latest/Other/49-cubic-interpollation.html?highlight=cubic
+    ///
+    fn get_cubic_interpolated_value_from_buffer(&self, t: f32) -> f32 {
+        let buffer = &self.circular_buffer;
+        let time = t % buffer.len() as f32;
+        let inpos = time.floor() as usize;
+        let finpos = time.fract();
+
+        // Get four surrounding samples from buffer
+        let xm1 = buffer[if inpos == 0 { buffer.len() } else { inpos } - 1];
+        let x0 = buffer[inpos];
+        let x1 = buffer[(inpos + 1) % buffer.len()];
+        let x2 = buffer[(inpos + 2) % buffer.len()];
+
+        let a = (3. * (x0 - x1) - xm1 + x2) / 2.;
+        let b = 2. * x1 + xm1 - (5. * x0 + x2) / 2.;
+        let c = (x1 - xm1) / 2.;
+
+        (((a * finpos) + b) * finpos + c) * finpos + x0
+    }
+
+    fn get_linear_interpolated_value_from_buffer(&self, t: f32) -> f32 {
+        // Use linear interpolation to read a fractional index
+        // into the buffer by using the fractional component of
+        // the read pointer to adjust weights of adjacent samples
+        let time = t % self.circular_buffer.len() as f32;
+        let fraction = time - time.floor();
+        let previous_sample_index = time.floor() as usize;
+        let next_sample_index = (previous_sample_index + 1) % self.circular_buffer.len() as usize;
+
+        fraction * self.circular_buffer[next_sample_index]
+            + (1.0 - fraction) * self.circular_buffer[previous_sample_index]
+    }
+
     fn get_interpolated_sample(&self, lfo_width: f32, sample_rate: f32, phase_shift: f32) -> f32 {
         // Recalculate read pointer with respect to write pointer
         let mut lfo_phase = self.lfo_phase + phase_shift;
@@ -70,19 +106,9 @@ impl DelayLine {
         let phase_component = 2.0 * PI * lfo_phase;
         let current_delay = lfo_width * (0.5 + 0.5 * phase_component.sin());
         let buffer_len = self.circular_buffer.len() as f32;
-        let mut interpolated_rp =
-            self.write_pointer as f32 - (current_delay * sample_rate) as f32 + buffer_len - 3.0;
-        interpolated_rp %= buffer_len;
+        let t = self.write_pointer as f32 - (current_delay * sample_rate) as f32 + buffer_len - 3.0;
 
-        // Use linear interpolation to read a fractional index
-        // into the buffer by using the fractional component of
-        // the read pointer to adjust weights of adjacent samples
-        let fraction = interpolated_rp - interpolated_rp.floor();
-        let previous_sample = interpolated_rp.floor() as usize;
-        let next_sample = (previous_sample + 1) % buffer_len as usize;
-
-        fraction * self.circular_buffer[next_sample]
-            + (1.0 - fraction) * self.circular_buffer[previous_sample]
+        self.get_cubic_interpolated_value_from_buffer(t)
     }
 
     pub fn process(&mut self, input: f32) -> f32 {
@@ -141,7 +167,8 @@ impl DelayLine {
         }
 
         // Update LFO phase
-        self.lfo_phase += lfo_frequency * sample_rate.recip();
+        // FIXME: multiplying by 0.5 because the frequency doesn't seem to line up
+        self.lfo_phase += 0.5 * lfo_frequency * sample_rate.recip();
         if self.lfo_phase >= 1.0 {
             self.lfo_phase -= 1.0;
         }
