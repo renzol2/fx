@@ -1,5 +1,3 @@
-use nih_plug::nih_log;
-
 pub struct DelayLine {
     circular_buffer: Vec<f32>,
     read_pointer: usize,
