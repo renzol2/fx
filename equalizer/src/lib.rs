@@ -1,14 +1,14 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use biquad::{BiquadFilter, BiquadFilterType};
+use biquad::{BiquadFilterType, StereoBiquadFilter};
 use nih_plug::prelude::*;
 
 mod biquad;
 
 pub struct Equalizer {
     params: Arc<EqualizerParams>,
-    biquad: BiquadFilter,
+    biquad: StereoBiquadFilter,
     should_update_filter: Arc<AtomicBool>,
 }
 
@@ -34,7 +34,7 @@ impl Default for Equalizer {
         Self {
             params,
             should_update_filter,
-            biquad: BiquadFilter::new(),
+            biquad: StereoBiquadFilter::new(),
         }
     }
 }
@@ -104,7 +104,7 @@ impl EqualizerParams {
 }
 
 impl Plugin for Equalizer {
-    const NAME: &'static str = "Equalizer v0.0.10";
+    const NAME: &'static str = "Equalizer v0.0.12";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -162,20 +162,21 @@ impl Plugin for Equalizer {
             .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
-            let frequency = self.params.cutoff_frequency.smoothed.next();
-            let q = self.params.q.smoothed.next();
-            let gain = self.params.gain.smoothed.next();
             let filter_type = self.params.filter_type.value();
+            let frequency = self.params.cutoff_frequency.smoothed.next();
+            let fc = frequency / sample_rate;
+            let q = self.params.q.smoothed.next();
 
-            let fc = 0.5 * frequency / sample_rate;
-            self.biquad.set_biquad(filter_type, fc, q, gain);
+            let gain = self.params.gain.smoothed.next();
+            let gain_db = util::gain_to_db(gain);
+            self.biquad.set_biquads(filter_type, fc, q, gain_db);
         }
 
-        for channel_samples in buffer.iter_samples() {
+        for mut channel_samples in buffer.iter_samples() {
             // Update parameters while smoothing
             if self.params.cutoff_frequency.smoothed.is_smoothing() {
                 let cutoff_frequency_smoothed = self.params.cutoff_frequency.smoothed.next();
-                let fc = 0.5 * cutoff_frequency_smoothed / sample_rate;
+                let fc = cutoff_frequency_smoothed / sample_rate;
                 self.biquad.set_fc(fc);
             }
             if self.params.q.smoothed.is_smoothing() {
@@ -184,13 +185,19 @@ impl Plugin for Equalizer {
             }
             if self.params.gain.smoothed.is_smoothing() {
                 let gain_smoothed = self.params.gain.smoothed.next();
-                self.biquad.set_peak_gain(gain_smoothed);
+                let gain_db = util::gain_to_db(gain_smoothed);
+                self.biquad.set_peak_gain(gain_db);
             }
 
             // Process input
-            for sample in channel_samples {
-                *sample = self.biquad.process(*sample);
-            }
+            let sample_l = *channel_samples.get_mut(0).unwrap();
+            let sample_r = *channel_samples.get_mut(1).unwrap();
+            let input_samples = (sample_l, sample_r);
+
+            let processed_samples = self.biquad.process(input_samples);
+
+            *channel_samples.get_mut(0).unwrap() = processed_samples.0;
+            *channel_samples.get_mut(1).unwrap() = processed_samples.1;
         }
 
         ProcessStatus::Normal
@@ -198,7 +205,7 @@ impl Plugin for Equalizer {
 }
 
 impl ClapPlugin for Equalizer {
-    const CLAP_ID: &'static str = "com.your-domain.equalizer";
+    const CLAP_ID: &'static str = "https://renzomledesma.me";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("A simple parametric EQ");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
