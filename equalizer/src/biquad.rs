@@ -16,11 +16,6 @@ pub enum BiquadFilterType {
 /// band pass, notch, parametric (peaking), low shelf, and high shelf. This implementation is
 /// written in transposed direct form II, with two unit delays.
 ///
-/// NOTE: There are a few known issues with this implementation so far:
-/// - When working with stereo input, low pass and band pass turns stereo input to mono.
-/// - Parametric, low shelf, and high shelf filters don't do anything when "cutting" (when the
-/// peak gain is below 0).
-///
 /// Biquad filter code from: https://www.earlevel.com/main/2012/11/26/biquad-c-source-code/
 pub struct BiquadFilter {
     // Filter type & coefficients
