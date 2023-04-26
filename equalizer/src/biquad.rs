@@ -1,7 +1,7 @@
 use nih_plug::prelude::*;
 use std::f32::consts::PI;
 
-#[derive(Enum, Debug, PartialEq, Eq)]
+#[derive(Enum, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BiquadFilterType {
     LowPass,
     HighPass,
@@ -15,12 +15,12 @@ pub enum BiquadFilterType {
 /// A biquad filter implementation that supports 7 filter types: low pass, high pass,
 /// band pass, notch, parametric (peaking), low shelf, and high shelf. This implementation is
 /// written in transposed direct form II, with two unit delays.
-/// 
+///
 /// NOTE: There are a few known issues with this implementation so far:
 /// - When working with stereo input, low pass and band pass turns stereo input to mono.
 /// - Parametric, low shelf, and high shelf filters don't do anything when "cutting" (when the
 /// peak gain is below 0).
-/// 
+///
 /// Biquad filter code from: https://www.earlevel.com/main/2012/11/26/biquad-c-source-code/
 pub struct BiquadFilter {
     // Filter type & coefficients
@@ -94,14 +94,10 @@ impl BiquadFilter {
 
     /// Recalculates coefficients according to the filter's current parameters.
     pub fn calculate_biquad_coefficients(&mut self) {
-        // In Redmon's code, the absolute value of peak gain is used.
-        // I tried removing the absolute value operation to see if it would fix the cutting problem,
-        // (see below), but it does not fix it. It seems to work fine, so I'm leaving it without abs.
-        let v = 10.0_f32.powf(self.peak_gain / 20.0);
+        let v = 10.0_f32.powf(self.peak_gain.abs() / 20.0);
         let k = (PI * self.fc).tan();
 
         // FIXME: cut for parametric, low shelf, and high self is not cutting at all
-        // FIXME: lowpass and bandpass filters cause signal to be mono
         match self.filter_type {
             BiquadFilterType::LowPass => {
                 let norm = (1.0 + k / self.q + k * k).recip();
@@ -200,5 +196,56 @@ impl BiquadFilter {
         self.z1 = input * self.a1 + self.z2 - self.b1 * output;
         self.z2 = input * self.a2 - self.b2 * output;
         output
+    }
+}
+
+pub struct StereoBiquadFilter {
+    filter_l: BiquadFilter,
+    filter_r: BiquadFilter,
+}
+
+impl StereoBiquadFilter {
+    pub fn new() -> StereoBiquadFilter {
+        StereoBiquadFilter {
+            filter_l: BiquadFilter::new(),
+            filter_r: BiquadFilter::new(),
+        }
+    }
+
+    /// Sets filter type and recalculates coefficients.
+    pub fn set_filter_type(&mut self, filter_type: BiquadFilterType) {
+        self.filter_l.set_filter_type(filter_type.clone());
+        self.filter_r.set_filter_type(filter_type.clone());
+    }
+
+    pub fn set_biquads(&mut self, filter_type: BiquadFilterType, fc: f32, q: f32, peak_gain: f32) {
+        self.filter_l
+            .set_biquad(filter_type.clone(), fc, q, peak_gain);
+        self.filter_r
+            .set_biquad(filter_type.clone(), fc, q, peak_gain);
+    }
+
+    /// Sets Q value and recalculates coefficients.
+    pub fn set_q(&mut self, q: f32) {
+        self.filter_l.set_q(q);
+        self.filter_r.set_q(q);
+    }
+
+    /// Sets center frequency and recalculates coefficients.
+    pub fn set_fc(&mut self, fc: f32) {
+        self.filter_l.set_fc(fc);
+        self.filter_r.set_fc(fc);
+    }
+
+    /// Sets peak gain and recalculates coefficients.
+    pub fn set_peak_gain(&mut self, peak_gain: f32) {
+        self.filter_l.set_peak_gain(peak_gain);
+        self.filter_r.set_peak_gain(peak_gain);
+    }
+
+    pub fn process(&mut self, input: (f32, f32)) -> (f32, f32) {
+        let out_l = self.filter_l.process(input.0);
+        let out_r = self.filter_r.process(input.1);
+        (out_l, out_r)
     }
 }
