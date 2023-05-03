@@ -1,4 +1,6 @@
-use crate::biquad::{BiquadFilter, BiquadFilterType, StereoBiquadFilter};
+use nih_plug::nih_dbg;
+
+use crate::biquad::{BiquadFilter, BiquadFilterType};
 use crate::filters::{Allpass, DelayLine};
 
 // Filter constants
@@ -63,7 +65,10 @@ impl TankBlock {
         );
     }
 
-    pub fn process(&mut self, input: f32) -> f32 {
+    ///
+    /// Returns the sum of tapped outputs and the last delay output.
+    ///
+    pub fn process(&mut self, input: f32) -> (f32, f32) {
         let decay = self.decay;
 
         // Begin tank processing
@@ -74,38 +79,40 @@ impl TankBlock {
         // Delay and damp
         let delay_1_output = self.delay_1.read();
         self.delay_1.write_and_advance(decay_diffuser_1_output);
-        let damping_filter_output = decay * self.damping_filter.process(delay_1_output);
+        // let damping_filter_output = decay * self.damping_filter.process(delay_1_output);
 
         // Second tap
-        output -= 0.6 * damping_filter_output;
-        let decay_diffuser_2_output = self.decay_diffuser_2.tick(damping_filter_output);
+        output -= 0.6 * delay_1_output; // normally damping out put
+        let decay_diffuser_2_output = self.decay_diffuser_2.tick(delay_1_output);
 
         // Third tap
         output += 0.6 * decay_diffuser_2_output;
 
         let delay_2_output = self.delay_2.read();
-        self.delay_2.write_and_advance(delay_2_output);
+        self.delay_2.write_and_advance(decay_diffuser_2_output);
 
-        output * decay
+        (output * decay, delay_2_output)
     }
 }
 
-struct Dattorro {
+pub struct Dattorro {
     predelay: DelayLine,
     diffuser: [Allpass; 4],
-    bandwidth_filter: StereoBiquadFilter,
+    bandwidth_filter: BiquadFilter,
     tank: (TankBlock, TankBlock),
+    tank_signal_1: f32,
+    tank_signal_2: f32,
+}
+
+///
+/// Convert the same length of time (in samples) from one sample rate to another.
+///
+pub fn sr_convert(old_sr: usize, new_sr: usize, samples: usize) -> usize {
+    let seconds = samples as f32 / old_sr as f32;
+    (new_sr as f32 * seconds) as usize
 }
 
 impl Dattorro {
-    ///
-    /// Convert the same length of time (in samples) from one sample rate to another.
-    ///
-    fn sr_convert(old_sr: usize, new_sr: usize, samples: usize) -> usize {
-        let seconds = samples as f32 / old_sr as f32;
-        (new_sr as f32 * seconds) as usize
-    }
-
     pub fn new(
         sample_rate: usize,
         max_predelay_length: usize,
@@ -113,22 +120,22 @@ impl Dattorro {
         decay: f32,
     ) -> Dattorro {
         let diffuser = [
-            Allpass::new(Dattorro::sr_convert(
+            Allpass::new(sr_convert(
                 DATTORRO_SAMPLE_RATE,
                 sample_rate,
                 DATTORRO_ALLPASS_1_LENGTH,
             )),
-            Allpass::new(Dattorro::sr_convert(
+            Allpass::new(sr_convert(
                 DATTORRO_SAMPLE_RATE,
                 sample_rate,
                 DATTORRO_ALLPASS_2_LENGTH,
             )),
-            Allpass::new(Dattorro::sr_convert(
+            Allpass::new(sr_convert(
                 DATTORRO_SAMPLE_RATE,
                 sample_rate,
                 DATTORRO_ALLPASS_3_LENGTH,
             )),
-            Allpass::new(Dattorro::sr_convert(
+            Allpass::new(sr_convert(
                 DATTORRO_SAMPLE_RATE,
                 sample_rate,
                 DATTORRO_ALLPASS_4_LENGTH,
@@ -156,13 +163,15 @@ impl Dattorro {
         Dattorro {
             predelay: DelayLine::new(max_predelay_length),
             diffuser,
-            bandwidth_filter: StereoBiquadFilter::new(),
+            bandwidth_filter: BiquadFilter::new(),
             tank: (tank_block_1, tank_block_2),
+            tank_signal_1: 0.0,
+            tank_signal_2: 0.0,
         }
     }
 
     pub fn initialize(&mut self, bandwidth_filter_frequency: f32) {
-        self.bandwidth_filter.set_biquads(
+        self.bandwidth_filter.set_biquad(
             BiquadFilterType::LowPass,
             bandwidth_filter_frequency,
             FILTER_Q,
@@ -174,26 +183,51 @@ impl Dattorro {
     }
 
     pub fn process(&mut self, input: (f32, f32), pregain: f32) -> (f32, f32) {
-        // Mix to mono, apply pregain, and diffuse
-        let mut input_mono = (input.0 + input.1) / 2.0;
-        input_mono *= pregain;
-        let diffused = self
-            .diffuser
-            .iter_mut()
-            .fold(input_mono, |acc, allpass| allpass.tick(acc));
+        // Mix to mono, apply pregain and predelay
+        let input_mono = ((input.0 + input.1) / 2.0) * pregain;
+        let mut processed = self.predelay.read();
+        self.predelay.write_and_advance(input_mono);
+
+        // Apply bandwidth, then defuse
+        // processed = self.bandwidth_filter.process(processed);
+        for allpass in &mut self.diffuser {
+            processed = allpass.tick(processed);
+        }
 
         // Pass diffused signal through both tanks
-        let tank_1_output = self.tank.0.process(diffused);
-        let tank_2_output = self.tank.1.process(diffused);
+        let (tank_1_output, feedback_signal_1) =
+            self.tank.0.process(processed + self.tank_signal_1);
+        let (tank_2_output, feedback_signal_2) =
+            self.tank.1.process(processed + self.tank_signal_2);
 
         // Feedback signal through opposite tanks
-        let tank_1_feedback = self.tank.0.process(tank_2_output);
-        let tank_2_feedback = self.tank.1.process(tank_1_output);
+        let (tank_1_feedback, fedback_signal_1) = self.tank.0.process(feedback_signal_2);
+        let (tank_2_feedback, fedback_signal_2) = self.tank.1.process(feedback_signal_1);
 
         // Sum tapped outputs
-        let out_l = tank_1_output + tank_1_feedback;
-        let out_r = tank_2_output + tank_2_feedback;
+        let out_l = 0.6 * tank_1_output - 0.6 * tank_1_feedback;
+        let out_r = 0.6 * tank_2_output - 0.6 * tank_2_feedback;
+
+        self.tank_signal_1 = fedback_signal_1;
+        self.tank_signal_2 = fedback_signal_2;
 
         (out_l, out_r)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::DEFAULT_SAMPLE_RATE;
+
+    use super::*;
+
+    #[test]
+    fn sample_rate_conversion_is_correct() {
+        let old_sr = DEFAULT_SAMPLE_RATE;
+        let new_sr = 44100;
+        let samples = DEFAULT_SAMPLE_RATE;
+        let result = sr_convert(old_sr, new_sr, samples);
+        let expected = new_sr;
+        assert_eq!(expected, result);
     }
 }

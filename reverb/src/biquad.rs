@@ -17,6 +17,7 @@ pub enum BiquadFilterType {
 /// written in transposed direct form II, with two unit delays.
 ///
 /// Biquad filter code from: https://www.earlevel.com/main/2012/11/26/biquad-c-source-code/
+#[derive(Debug)]
 pub struct BiquadFilter {
     // Filter type & coefficients
     filter_type: BiquadFilterType,
@@ -92,7 +93,6 @@ impl BiquadFilter {
         let v = 10.0_f32.powf(self.peak_gain.abs() / 20.0);
         let k = (PI * self.fc).tan();
 
-        // FIXME: cut for parametric, low shelf, and high self is not cutting at all
         match self.filter_type {
             BiquadFilterType::LowPass => {
                 let norm = (1.0 + k / self.q + k * k).recip();

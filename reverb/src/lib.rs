@@ -1,6 +1,10 @@
+use dattorro::Dattorro;
 use freeverb::Freeverb;
 use nih_plug::prelude::*;
 use std::sync::Arc;
+
+const DEFAULT_SAMPLE_RATE: usize = 44100;
+const MAX_PREDELAY_LENGTH_SAMPLES: usize = DEFAULT_SAMPLE_RATE / 10;
 
 mod biquad;
 mod dattorro;
@@ -10,6 +14,7 @@ mod freeverb;
 pub struct Reverb {
     params: Arc<ReverbParams>,
     freeverb: Freeverb,
+    dattorro: Dattorro,
 }
 
 #[derive(Params)]
@@ -37,7 +42,13 @@ impl Default for Reverb {
     fn default() -> Self {
         Self {
             params: Arc::new(ReverbParams::default()),
-            freeverb: Freeverb::new(44100), // default, can set later during initialization
+            freeverb: Freeverb::new(DEFAULT_SAMPLE_RATE), // default, can set later during initialization
+            dattorro: Dattorro::new(
+                DEFAULT_SAMPLE_RATE,
+                MAX_PREDELAY_LENGTH_SAMPLES,
+                1. - 0.0005,
+                0.9,
+            ),
         }
     }
 }
@@ -95,7 +106,7 @@ impl Default for ReverbParams {
 }
 
 impl Plugin for Reverb {
-    const NAME: &'static str = "Reverb v0.0.2";
+    const NAME: &'static str = "Reverb v0.0.10";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -142,6 +153,7 @@ impl Plugin for Reverb {
         // function if you do not need it.
         self.freeverb
             .generate_filters(_buffer_config.sample_rate as usize);
+        self.dattorro.initialize(0.9);
         true
     }
 
@@ -177,11 +189,14 @@ impl Plugin for Reverb {
             let in_l = *channel_samples.get_mut(0).unwrap();
             let in_r = *channel_samples.get_mut(1).unwrap();
 
-            let frame_out = self.freeverb.tick((in_l * input_gain, in_r * input_gain));
+            // let processed = self.freeverb.tick((in_l * input_gain, in_r * input_gain));
+            let processed = self
+                .dattorro
+                .process((in_l * input_gain, in_r * input_gain), 0.5);
 
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
-            let out_l = in_l * (1. - dry_wet_ratio) + frame_out.0 * dry_wet_ratio;
-            let out_r = in_r * (1. - dry_wet_ratio) + frame_out.1 * dry_wet_ratio;
+            let out_l = in_l * (1. - dry_wet_ratio) + processed.0 * dry_wet_ratio;
+            let out_r = in_r * (1. - dry_wet_ratio) + processed.1 * dry_wet_ratio;
 
             *channel_samples.get_mut(0).unwrap() = out_l * output_gain;
             *channel_samples.get_mut(1).unwrap() = out_r * output_gain;
