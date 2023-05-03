@@ -12,6 +12,9 @@ struct BitcrushParams {
 
     #[id = "bits"]
     pub bits: FloatParam,
+
+    #[id = "constant"]
+    pub constant: FloatParam,
 }
 
 impl Default for Bitcrush {
@@ -50,6 +53,18 @@ impl Default for BitcrushParams {
             )
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            constant: FloatParam::new(
+                "Floating point constant",
+                16.0,
+                FloatRange::Skewed {
+                    min: 1.0,
+                    max: 1_000_000.0,
+                    factor: FloatRange::skew_factor(-1.0),
+                },
+            )
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
         }
     }
 }
@@ -62,8 +77,12 @@ fn bitcrush_sample(input: f32, bits: f32) -> f32 {
     round_to_multiple(input, 2_f32.powf(-bits))
 }
 
+fn floating_point_quantize(input: f32, constant: f32) -> f32 {
+    input + constant - constant
+}
+
 impl Plugin for Bitcrush {
-    const NAME: &'static str = "Bitcrush 0.0.1";
+    const NAME: &'static str = "Bitcrush v0.0.2";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -118,9 +137,16 @@ impl Plugin for Bitcrush {
         for channel_samples in buffer.iter_samples() {
             let gain = self.params.gain.smoothed.next();
             let bits = self.params.bits.smoothed.next();
+            let constant = self.params.constant.smoothed.next();
 
             for sample in channel_samples {
-                *sample = bitcrush_sample(*sample, bits) * gain;
+                // Dynamic range quantization
+                *sample = bitcrush_sample(*sample, bits);
+
+                // Floating point error quantization
+                *sample = floating_point_quantize(*sample, constant);
+
+                *sample *= gain;
             }
         }
 
@@ -179,5 +205,29 @@ mod tests {
         let outputs: Vec<f32> = inputs.iter().map(|x| bitcrush_sample(*x, bits)).collect();
         let expected: Vec<f32> = vec![0.0, 0.1015625, 0.203125, 0.5, 0.8671875, 1.0];
         assert_eq!(expected, outputs);
+    }
+
+    #[test]
+    fn test_floating_point_quantize() {
+        let inputs = vec![0., 0.1, 0.2, 0.5, 0.87, 1.0];
+        let constant: f32 = 128.0;
+        let outputs: Vec<f32> = inputs
+            .iter()
+            .map(|x| floating_point_quantize(*x, constant))
+            .collect();
+        assert_ne!(inputs, outputs);
+        println!("{:?}", outputs);
+    }
+
+    #[test]
+    fn test_floating_point_quantize_large_constant() {
+        let inputs = vec![0., 0.1, 0.2, 0.5, 0.87, 1.0];
+        let constant: f32 = 10000.0;
+        let outputs: Vec<f32> = inputs
+            .iter()
+            .map(|x| floating_point_quantize(*x, constant))
+            .collect();
+        assert_ne!(inputs, outputs);
+        println!("{:?}", outputs);
     }
 }
