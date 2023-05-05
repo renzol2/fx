@@ -1,12 +1,20 @@
+use dattorro::Dattorro;
 use freeverb::Freeverb;
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
+const DEFAULT_SAMPLE_RATE: usize = 44100;
+const MAX_PREDELAY_LENGTH_SAMPLES: usize = DEFAULT_SAMPLE_RATE / 10;
+
+mod biquad;
+mod dattorro;
+mod filters;
 mod freeverb;
 
 pub struct Reverb {
     params: Arc<ReverbParams>,
     freeverb: Freeverb,
+    dattorro: Dattorro,
 }
 
 #[derive(Params)]
@@ -34,7 +42,13 @@ impl Default for Reverb {
     fn default() -> Self {
         Self {
             params: Arc::new(ReverbParams::default()),
-            freeverb: Freeverb::new(44100),  // default, can set later during initialization
+            freeverb: Freeverb::new(DEFAULT_SAMPLE_RATE), // default, can set later during initialization
+            dattorro: Dattorro::new(
+                DEFAULT_SAMPLE_RATE,
+                MAX_PREDELAY_LENGTH_SAMPLES,
+                1. - 0.0005,
+                0.9,
+            ),
         }
     }
 }
@@ -66,7 +80,8 @@ impl Default for ReverbParams {
                 },
             )
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
-            .with_unit(" dB") .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
+            .with_unit(" dB")
+            .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
 
             dry_wet_ratio: FloatParam::new(
@@ -77,32 +92,21 @@ impl Default for ReverbParams {
             .with_smoother(SmoothingStyle::Linear(50.0))
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
-            room_size: FloatParam::new(
-                "Room size",
-                0.5,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+            room_size: FloatParam::new("Room size", 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_smoother(SmoothingStyle::Linear(50.0))
+                .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
-            dampening: FloatParam::new(
-                "Dampening",
-                0.5,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+            dampening: FloatParam::new("Dampening", 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_smoother(SmoothingStyle::Linear(50.0))
+                .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
-            frozen: BoolParam::new(
-                "Frozen",
-                false,
-            ),
+            frozen: BoolParam::new("Frozen", false),
         }
     }
 }
 
 impl Plugin for Reverb {
-    const NAME: &'static str = "Reverb v0.0.2";
+    const NAME: &'static str = "Reverb v0.0.10";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -147,7 +151,9 @@ impl Plugin for Reverb {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
-        self.freeverb.generate_filters(_buffer_config.sample_rate as usize);
+        self.freeverb
+            .generate_filters(_buffer_config.sample_rate as usize);
+        self.dattorro.initialize(0.9);
         true
     }
 
@@ -163,29 +169,35 @@ impl Plugin for Reverb {
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         // Get parameters
-        let room_size = self.params.room_size.smoothed.next();
-        let dampening = self.params.dampening.smoothed.next();
+        let room_size_smoothed = &self.params.room_size.smoothed;
+        let dampening_smoothed = &self.params.dampening.smoothed;
         let frozen = self.params.frozen.value();
-
-        // Update freeverb
-        self.freeverb.set_room_size(room_size);
-        self.freeverb.set_dampening(dampening);
         self.freeverb.set_frozen(frozen);
 
         // Process inputs
         for mut channel_samples in buffer.iter_samples() {
+            if room_size_smoothed.is_smoothing() {
+                self.freeverb.set_room_size(room_size_smoothed.next());
+            }
+            if dampening_smoothed.is_smoothing() {
+                self.freeverb.set_dampening(dampening_smoothed.next());
+            }
+
             let input_gain = self.params.input_gain.smoothed.next();
             let output_gain = self.params.output_gain.smoothed.next();
 
             let in_l = *channel_samples.get_mut(0).unwrap();
             let in_r = *channel_samples.get_mut(1).unwrap();
-            
-            let frame_out = self.freeverb.tick((in_l * input_gain, in_r * input_gain));
+
+            // let processed = self.freeverb.tick((in_l * input_gain, in_r * input_gain));
+            let processed = self
+                .dattorro
+                .process((in_l * input_gain, in_r * input_gain), 0.5);
 
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
-            let out_l = in_l * (1. - dry_wet_ratio) + frame_out.0 * dry_wet_ratio;
-            let out_r = in_r * (1. - dry_wet_ratio) + frame_out.1 * dry_wet_ratio;
-            
+            let out_l = in_l * (1. - dry_wet_ratio) + processed.0 * dry_wet_ratio;
+            let out_r = in_r * (1. - dry_wet_ratio) + processed.1 * dry_wet_ratio;
+
             *channel_samples.get_mut(0).unwrap() = out_l * output_gain;
             *channel_samples.get_mut(1).unwrap() = out_r * output_gain;
         }
