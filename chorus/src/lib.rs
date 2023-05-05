@@ -1,8 +1,8 @@
 use nih_plug::prelude::*;
-use std::{char::MAX, sync::Arc};
+use std::sync::Arc;
 
 mod delay_line;
-use delay_line::{DelayLine, StereoChorus};
+use delay_line::StereoChorus;
 
 const MAX_DELAY_TIME_SECONDS: f32 = 5.0;
 const DEFAULT_SAMPLE_RATE: usize = 44100;
@@ -10,7 +10,6 @@ const PARAMETER_MINIMUM: f32 = 0.01;
 
 pub struct Chorus {
     params: Arc<ChorusParams>,
-    delay_line: DelayLine,
     chorus: StereoChorus,
 }
 
@@ -37,10 +36,8 @@ struct ChorusParams {
 
 impl Default for Chorus {
     fn default() -> Self {
-        let max_delay_time = (MAX_DELAY_TIME_SECONDS * DEFAULT_SAMPLE_RATE as f32) as usize;
         Self {
             params: Arc::new(ChorusParams::default()),
-            delay_line: DelayLine::new(max_delay_time),
             chorus: StereoChorus::new(MAX_DELAY_TIME_SECONDS, DEFAULT_SAMPLE_RATE),
         }
     }
@@ -77,7 +74,7 @@ impl Default for ChorusParams {
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
             vibrato_width: FloatParam::new(
-                "Vibrato width",
+                "Pitch variation",
                 0.02,
                 FloatRange::Skewed {
                     min: 0.001,
@@ -161,6 +158,8 @@ impl Plugin for Chorus {
         _buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
+        self.chorus
+            .resize_buffers(MAX_DELAY_TIME_SECONDS, _buffer_config.sample_rate as usize);
         true
     }
 
@@ -172,7 +171,6 @@ impl Plugin for Chorus {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        let sample_rate = _context.transport().sample_rate;
         for mut channel_samples in buffer.iter_samples() {
             // Get parameters
             let gain = self.params.gain.smoothed.next();
