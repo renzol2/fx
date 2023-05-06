@@ -35,8 +35,9 @@ struct ReverbParams {
     #[id = "frozen"]
     pub frozen: BoolParam,
 
+    // TODO: add a switch to toggle between reverbs
     // TODO: add a parameter for width
-    // TODO: add a high pass parameter
+    // TODO: add a low pass and/or high pass parameter
 }
 
 impl Default for Reverb {
