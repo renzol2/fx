@@ -54,7 +54,9 @@ impl Allpass {
     }
 }
 
-/// A comb filter with a single delay line.
+///
+/// A low pass feedback comb filter implemented with a single delay line.
+/// 
 pub struct Comb {
     delay_line: DelayLine,
     feedback: f32,
@@ -98,7 +100,7 @@ impl Comb {
 /// https://ccrma.stanford.edu/~jos/pasp/Freeverb.html
 
 const SCALE_WET: f32 = 3.0;
-const SCALE_DAMPENING: f32 = 0.4;
+const SCALE_DAMPING: f32 = 0.4;
 
 const STEREO_SPREAD: usize = 23;
 const FIXED_GAIN: f32 = 0.015;
@@ -224,7 +226,7 @@ impl Freeverb {
 
         freeverb.set_wet(1.0);
         freeverb.set_width(0.5);
-        freeverb.set_dampening(0.5);
+        freeverb.set_damping(0.5);
         freeverb.set_room_size(0.5);
         freeverb.set_frozen(false);
 
@@ -246,8 +248,8 @@ impl Freeverb {
         self.update_wet_gains();
     }
 
-    pub fn set_dampening(&mut self, value: f32) {
-        self.dampening = value * SCALE_DAMPENING;
+    pub fn set_damping(&mut self, value: f32) {
+        self.dampening = value * SCALE_DAMPING;
         self.update_combs()
     }
 
