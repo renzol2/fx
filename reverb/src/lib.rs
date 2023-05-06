@@ -1,13 +1,18 @@
+mod filters;
+mod freeverb;
+mod moorer_verb;
+
 use freeverb::Freeverb;
+use moorer_verb::MoorerReverb;
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
-mod filters;
-mod freeverb;
+const DEFAULT_SAMPLE_RATE: usize = 44_100;
 
 pub struct Reverb {
     params: Arc<ReverbParams>,
     freeverb: Freeverb,
+    moorer_reverb: MoorerReverb,
 }
 
 #[derive(Params)]
@@ -29,13 +34,18 @@ struct ReverbParams {
 
     #[id = "frozen"]
     pub frozen: BoolParam,
+
+    // TODO: add a parameter for width
+    // TODO: add a high pass parameter
 }
 
 impl Default for Reverb {
     fn default() -> Self {
+        // default sample rates are set later during initialization
         Self {
             params: Arc::new(ReverbParams::default()),
-            freeverb: Freeverb::new(44100), // default, can set later during initialization
+            freeverb: Freeverb::new(DEFAULT_SAMPLE_RATE),
+            moorer_reverb: MoorerReverb::new(DEFAULT_SAMPLE_RATE),
         }
     }
 }
@@ -93,7 +103,7 @@ impl Default for ReverbParams {
 }
 
 impl Plugin for Reverb {
-    const NAME: &'static str = "Reverb v0.0.3";
+    const NAME: &'static str = "Reverb v0.0.7";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -138,7 +148,7 @@ impl Plugin for Reverb {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
-        self.freeverb
+        self.moorer_reverb
             .generate_filters(_buffer_config.sample_rate as usize);
         true
     }
@@ -159,24 +169,24 @@ impl Plugin for Reverb {
         let dampening = self.params.damping.smoothed.next();
 
         // Update freeverb
-        self.freeverb.set_room_size(room_size);
-        self.freeverb.set_damping(dampening);
+        self.moorer_reverb.set_room_size(room_size);
+        self.moorer_reverb.set_damping(dampening);
 
         // Process inputs
         for mut channel_samples in buffer.iter_samples() {
             // Update filter state with parameters
             if self.params.room_size.smoothed.is_smoothing() {
-                self.freeverb
+                self.moorer_reverb
                     .set_room_size(self.params.room_size.smoothed.next());
             }
             if self.params.damping.smoothed.is_smoothing() {
-                self.freeverb
+                self.moorer_reverb
                     .set_damping(self.params.damping.smoothed.next());
             }
 
             // Check if we should freeze the reverb
             let frozen = self.params.frozen.value();
-            self.freeverb.set_frozen(frozen);
+            self.moorer_reverb.set_frozen(frozen);
 
             // Get input/output gain
             let input_gain = self.params.input_gain.smoothed.next();
@@ -186,7 +196,7 @@ impl Plugin for Reverb {
             let in_r = *channel_samples.get_mut(1).unwrap();
 
             // Process with reverb
-            let frame_out = self.freeverb.tick((in_l * input_gain, in_r * input_gain));
+            let frame_out = self.moorer_reverb.tick((in_l * input_gain, in_r * input_gain));
 
             // Apply dry/wet, then output
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();

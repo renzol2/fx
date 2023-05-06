@@ -2,7 +2,10 @@
 // Code here: https://github.com/irh/freeverb-rs/blob/main/src/freeverb/src/freeverb.rs
 // Ian Hobson's `freeverb-rs` is licensed under MIT License.
 
+const DEFAULT_SAMPLE_RATE: usize = 44_100;
+
 /// A delay line with variable buffer size.
+#[derive(Debug)]
 pub struct DelayLine {
     buffer: Vec<f32>,
     index: usize,
@@ -32,6 +35,7 @@ impl DelayLine {
 }
 
 /// An allpass filter with a single delay line.
+#[derive(Debug)]
 pub struct Allpass {
     delay_line: DelayLine,
 }
@@ -43,6 +47,11 @@ impl Allpass {
         }
     }
 
+    ///
+    /// Process an input value with output and feedback
+    /// calculated in the style of Schroeder's allpass filter.
+    /// See Fig. 2: https://hajim.rochester.edu/ece/sites/zduan/teaching/ece472/reading/Schroeder_1962.pdf
+    ///
     pub fn tick(&mut self, input: f32) -> f32 {
         let delayed = self.delay_line.read();
         let output = -input + delayed;
@@ -56,7 +65,8 @@ impl Allpass {
 
 ///
 /// A low pass feedback comb filter implemented with a single delay line.
-/// 
+///
+#[derive(Debug)]
 pub struct Comb {
     delay_line: DelayLine,
     feedback: f32,
