@@ -2,6 +2,7 @@ use freeverb::Freeverb;
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
+mod filters;
 mod freeverb;
 
 pub struct Reverb {
