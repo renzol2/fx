@@ -6,10 +6,12 @@ mod delay_line;
 use delay_line::DelayLine;
 
 const MAX_DELAY_TIME_SECONDS: f32 = 5.0;
+const DEFAULT_SAMPLE_RATE: usize = 44100;
 
 pub struct Delay {
     params: Arc<DelayParams>,
-    delay_line: DelayLine,
+    delay_line_l: DelayLine,
+    delay_line_r: DelayLine,
     should_update_delay_line: Arc<AtomicBool>,
 }
 
@@ -31,7 +33,14 @@ impl Default for Delay {
         Self {
             params: Arc::new(DelayParams::new(should_update_delay_line.clone())),
             should_update_delay_line,
-            delay_line: DelayLine::new(44100 * MAX_DELAY_TIME_SECONDS as usize),
+            delay_line_l: DelayLine::new(
+                DEFAULT_SAMPLE_RATE * MAX_DELAY_TIME_SECONDS as usize,
+                DEFAULT_SAMPLE_RATE,
+            ),
+            delay_line_r: DelayLine::new(
+                DEFAULT_SAMPLE_RATE * MAX_DELAY_TIME_SECONDS as usize,
+                DEFAULT_SAMPLE_RATE,
+            ),
         }
     }
 }
@@ -82,7 +91,7 @@ impl DelayParams {
 }
 
 impl Plugin for Delay {
-    const NAME: &'static str = "Delay v0.0.2";
+    const NAME: &'static str = "Delay v0.0.4";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -132,9 +141,13 @@ impl Plugin for Delay {
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
         let fs = _buffer_config.sample_rate;
-        self.delay_line
+        self.delay_line_l
             .resize_buffer((fs * MAX_DELAY_TIME_SECONDS) as usize);
-        self.delay_line
+        self.delay_line_l
+            .set_delay_time(self.params.delay_time.value(), fs);
+        self.delay_line_r
+            .resize_buffer((fs * MAX_DELAY_TIME_SECONDS) as usize);
+        self.delay_line_r
             .set_delay_time(self.params.delay_time.value(), fs);
         true
     }
@@ -160,29 +173,42 @@ impl Plugin for Delay {
             let delay_time_ms = self.params.delay_time.smoothed.next();
             let feedback = self.params.feedback.smoothed.next();
             let dry_wet = self.params.dry_wet_ratio.smoothed.next();
-            self.delay_line.set_delay_time(delay_time_ms, sample_rate);
-            self.delay_line.set_feedback(feedback);
-            self.delay_line.set_dry_wet(1.0 - dry_wet, dry_wet);
+
+            // Set both delay lines
+            self.delay_line_l.set_delay_time(delay_time_ms, sample_rate);
+            self.delay_line_l.set_feedback(feedback);
+            self.delay_line_l.set_dry_wet(1.0 - dry_wet, dry_wet);
+            self.delay_line_r.set_delay_time(delay_time_ms, sample_rate);
+            self.delay_line_r.set_feedback(feedback);
+            self.delay_line_r.set_dry_wet(1.0 - dry_wet, dry_wet);
         }
-        for channel_samples in buffer.iter_samples() {
+        for mut channel_samples in buffer.iter_samples() {
             // Set parameters while smoothing
             if self.params.delay_time.smoothed.is_smoothing() {
                 let delay_time_ms = self.params.delay_time.smoothed.next();
-                self.delay_line.set_delay_time(delay_time_ms, sample_rate)
+                self.delay_line_l.set_delay_time(delay_time_ms, sample_rate);
+                self.delay_line_r.set_delay_time(delay_time_ms, sample_rate);
             }
             if self.params.feedback.smoothed.is_smoothing() {
                 let feedback = self.params.feedback.smoothed.next();
-                self.delay_line.set_feedback(feedback);
+                self.delay_line_l.set_feedback(feedback);
+                self.delay_line_r.set_feedback(feedback);
             }
             if self.params.dry_wet_ratio.smoothed.is_smoothing() {
                 let dry_wet = self.params.dry_wet_ratio.smoothed.next();
-                self.delay_line.set_dry_wet(1.0 - dry_wet, dry_wet);
+                self.delay_line_l.set_dry_wet(1.0 - dry_wet, dry_wet);
+                self.delay_line_r.set_dry_wet(1.0 - dry_wet, dry_wet);
             }
 
-            // Apply delay
-            for sample in channel_samples {
-                *sample = self.delay_line.process(*sample);
-            }
+            // Process input
+            let sample_l = *channel_samples.get_mut(0).unwrap();
+            let sample_r = *channel_samples.get_mut(1).unwrap();
+
+            let processed_l = self.delay_line_l.process(sample_l);
+            let processed_r = self.delay_line_r.process(sample_r);
+
+            *channel_samples.get_mut(0).unwrap() = processed_l;
+            *channel_samples.get_mut(1).unwrap() = processed_r;
         }
 
         ProcessStatus::Normal
