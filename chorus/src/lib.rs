@@ -18,11 +18,11 @@ struct ChorusParams {
     #[id = "gain"]
     pub gain: FloatParam,
 
-    #[id = "lfo-frequency"]
-    pub lfo_frequency: FloatParam,
+    #[id = "rate"]
+    pub rate: FloatParam,
 
-    #[id = "vibrato-width"]
-    pub vibrato_width: FloatParam,
+    #[id = "lfo-amount"]
+    pub lfo_amount: FloatParam,
 
     #[id = "depth"]
     pub depth: FloatParam,
@@ -60,8 +60,8 @@ impl Default for ChorusParams {
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
 
-            lfo_frequency: FloatParam::new(
-                "LFO Frequency",
+            rate: FloatParam::new(
+                "Rate",
                 0.1,
                 FloatRange::Skewed {
                     min: 0.001,
@@ -73,8 +73,8 @@ impl Default for ChorusParams {
             .with_unit(" Hz")
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
-            vibrato_width: FloatParam::new(
-                "Pitch variation",
+            lfo_amount: FloatParam::new(
+                "LFO Amount",
                 0.02,
                 FloatRange::Skewed {
                     min: 0.001,
@@ -174,8 +174,8 @@ impl Plugin for Chorus {
         for mut channel_samples in buffer.iter_samples() {
             // Get parameters
             let gain = self.params.gain.smoothed.next();
-            let lfo_frequency = self.params.lfo_frequency.smoothed.next();
-            let vibrato_width = self.params.vibrato_width.smoothed.next();
+            let rate = self.params.rate.smoothed.next();
+            let vibrato_width = self.params.lfo_amount.smoothed.next();
             let depth = self.params.depth.smoothed.next();
             let width = self.params.width.smoothed.next() * 0.5;
             let feedback = self.params.feedback.smoothed.next();
@@ -186,7 +186,7 @@ impl Plugin for Chorus {
 
             let (processed_l, processed_r) = self.chorus.process_with_chorus(
                 (sample_l, sample_r),
-                lfo_frequency,
+                rate,
                 vibrato_width,
                 width,
                 depth,
