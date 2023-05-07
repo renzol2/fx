@@ -2,8 +2,6 @@
 // Code here: https://github.com/irh/freeverb-rs/blob/main/src/freeverb/src/freeverb.rs
 // Ian Hobson's `freeverb-rs` is licensed under MIT License.
 
-const DEFAULT_SAMPLE_RATE: usize = 44_100;
-
 /// A delay line with variable buffer size.
 #[derive(Debug)]
 pub struct DelayLine {

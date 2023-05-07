@@ -8,7 +8,7 @@ use crate::filters::Comb;
 /// Tuning for Freeverb can be found here:
 /// https://ccrma.stanford.edu/~jos/pasp/Freeverb.html
 
-const SCALE_WET: f32 = 3.0;
+const SCALE_WET: f32 = 1.3;
 const SCALE_DAMPING: f32 = 0.4;
 
 const STEREO_SPREAD: usize = 23;

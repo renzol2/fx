@@ -23,7 +23,7 @@ const MOORER_SAMPLING_RATE: usize = 50_000;
 const SCALE_WET: f32 = 3.0;
 const SCALE_DAMPING: f32 = 0.4;
 
-const STEREO_SPREAD_MS: f32 = 0.52;  // FIXME: fix this maybe
+const STEREO_SPREAD_MS: f32 = 0.52;
 const FIXED_GAIN: f32 = 0.015;
 
 const SCALE_ROOM: f32 = 0.28;

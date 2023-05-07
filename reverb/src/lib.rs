@@ -9,6 +9,17 @@ use std::sync::Arc;
 
 const DEFAULT_SAMPLE_RATE: usize = 44_100;
 
+#[derive(Enum, Debug, PartialEq, Eq)]
+pub enum ReverbType {
+    #[id = "freeverb"]
+    #[name = "Freeverb"]
+    Freeverb,
+
+    #[id = "moorer"]
+    #[name = "Moorer"]
+    Moorer,
+}
+
 pub struct Reverb {
     params: Arc<ReverbParams>,
     freeverb: Freeverb,
@@ -35,6 +46,8 @@ struct ReverbParams {
     #[id = "frozen"]
     pub frozen: BoolParam,
 
+    #[id = "reverb-type"]
+    pub reverb_type: EnumParam<ReverbType>,
     // TODO: add a switch to toggle between reverbs
     // TODO: add a parameter for width
     // TODO: add a low pass and/or high pass parameter
@@ -99,12 +112,36 @@ impl Default for ReverbParams {
                 .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
             frozen: BoolParam::new("Frozen", false),
+
+            reverb_type: EnumParam::new("Type", ReverbType::Freeverb),
         }
     }
 }
 
+impl Reverb {
+    fn update_reverbs(&mut self) {
+        let room_size_smoothed = &self.params.room_size.smoothed;
+        let damping_smoothed = &self.params.damping.smoothed;
+
+        // Update reverbs while parameters smooth
+        if room_size_smoothed.is_smoothing() {
+            self.freeverb.set_room_size(room_size_smoothed.next());
+            self.moorer_reverb.set_room_size(room_size_smoothed.next());
+        }
+        if damping_smoothed.is_smoothing() {
+            self.freeverb.set_damping(damping_smoothed.next());
+            self.moorer_reverb.set_damping(damping_smoothed.next());
+        }
+
+        // Check if we should freeze the reverb
+        let frozen = self.params.frozen.value();
+        self.freeverb.set_frozen(frozen);
+        self.moorer_reverb.set_frozen(frozen);
+    }
+}
+
 impl Plugin for Reverb {
-    const NAME: &'static str = "Reverb v0.0.7";
+    const NAME: &'static str = "Reverb v0.0.8";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -149,6 +186,8 @@ impl Plugin for Reverb {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
+        self.freeverb
+            .generate_filters(_buffer_config.sample_rate as usize);
         self.moorer_reverb
             .generate_filters(_buffer_config.sample_rate as usize);
         true
@@ -165,29 +204,9 @@ impl Plugin for Reverb {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        // Get parameters
-        let room_size = self.params.room_size.smoothed.next();
-        let dampening = self.params.damping.smoothed.next();
-
-        // Update freeverb
-        self.moorer_reverb.set_room_size(room_size);
-        self.moorer_reverb.set_damping(dampening);
-
-        // Process inputs
         for mut channel_samples in buffer.iter_samples() {
-            // Update filter state with parameters
-            if self.params.room_size.smoothed.is_smoothing() {
-                self.moorer_reverb
-                    .set_room_size(self.params.room_size.smoothed.next());
-            }
-            if self.params.damping.smoothed.is_smoothing() {
-                self.moorer_reverb
-                    .set_damping(self.params.damping.smoothed.next());
-            }
-
-            // Check if we should freeze the reverb
-            let frozen = self.params.frozen.value();
-            self.moorer_reverb.set_frozen(frozen);
+            // Update reverbs based on parameters
+            self.update_reverbs();
 
             // Get input/output gain
             let input_gain = self.params.input_gain.smoothed.next();
@@ -197,7 +216,11 @@ impl Plugin for Reverb {
             let in_r = *channel_samples.get_mut(1).unwrap();
 
             // Process with reverb
-            let frame_out = self.moorer_reverb.tick((in_l * input_gain, in_r * input_gain));
+            let input = (in_l * input_gain, in_r * input_gain);
+            let frame_out = match self.params.reverb_type.value() {
+                ReverbType::Freeverb => self.freeverb.tick(input),
+                ReverbType::Moorer => self.moorer_reverb.tick(input),
+            };
 
             // Apply dry/wet, then output
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
