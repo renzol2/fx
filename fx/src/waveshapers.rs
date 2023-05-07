@@ -15,7 +15,7 @@ pub fn get_saturator_output(drive: f32, input_sample: f32) -> f32 {
 /// Processes an input sample through a static hard clipper.
 /// Drive parameter increases distortion and reduces threshold.
 ///
-/// Desmos visualization of parameterization: https://www.desmos.com/calculator/7n1hzd53rf
+/// Desmos visualization of parameterization: https://www.desmos.com/calculator/ljssh5iqce
 pub fn get_hard_clipper_output(drive: f32, input_sample: f32) -> f32 {
     let threshold = 1. - 0.5 * drive;
     let slope = 1. + 0.5 * drive;
@@ -33,7 +33,7 @@ pub fn get_hard_clipper_output(drive: f32, input_sample: f32) -> f32 {
 /// Processes an input sample through a fuzz inducing rectifier.
 /// Drive parameter linearly changes waveshaper from a half-wave rectifier to a full-wave rectifier.
 ///
-/// Desmos visualization of parameterization: https://www.desmos.com/calculator/ty0gtxg43u
+/// Desmos visualization of parameterization: https://www.desmos.com/calculator/hzttouljdp
 pub fn get_fuzzy_rectifier_output(drive: f32, input_sample: f32) -> f32 {
     let x = input_sample;
     let output = if x >= 0. {
@@ -47,10 +47,10 @@ pub fn get_fuzzy_rectifier_output(drive: f32, input_sample: f32) -> f32 {
 /// Processes an input sample through a rectifying curve modeled after a Shockley-Diode circuit.
 /// Drive parameter changes the intensity of the curve.
 ///
-/// Based off Chowdhury's Shockley Diode rectifier approximation:
+/// Based off Chowdhury's Shockley Diode rectifier equation, modeled from William Shockley's work:
 /// https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
 ///
-/// Desmos visualization of parameterization: https://www.desmos.com/calculator/1xwge1y5pd
+/// Desmos visualization of parameterization: https://www.desmos.com/calculator/wduyw6huen
 pub fn get_shockley_diode_rectifier_output(drive: f32, input_sample: f32) -> f32 {
     let shockley_diode_output =
         (0.4 * drive + 0.1) * (E.powf((2. + 2. * drive) * input_sample) - 1.);
@@ -65,7 +65,7 @@ pub fn get_shockley_diode_rectifier_output(drive: f32, input_sample: f32) -> f32
 /// Based off Chowdhury's Dropout equation:
 /// https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
 ///
-/// Desmos visualization of parameterization: https://www.desmos.com/calculator/2dmj6p7yvk
+/// Desmos visualization of parameterization: https://www.desmos.com/calculator/mv32dtqhwe
 pub fn get_dropout_output(drive: f32, input_sample: f32) -> f32 {
     if drive == 0. {
         input_sample
@@ -104,7 +104,7 @@ fn lower_waveshaper(x: f32, lower_skew_param: f32) -> f32 {
 ///
 /// Based off Chowdhury's double soft clipper:
 /// https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
-/// Desmos visualization of parameterization: https://www.desmos.com/calculator/bplxqizjbe
+/// Desmos visualization of parameterization: https://www.desmos.com/calculator/kngozoijks
 pub fn get_double_soft_clipper_output(drive: f32, input_sample: f32) -> f32 {
     let x = input_sample;
     let upper_limit_param = 1. - 0.4 * drive;
@@ -126,6 +126,8 @@ pub fn get_double_soft_clipper_output(drive: f32, input_sample: f32) -> f32 {
 
 /// Processes an input sample through a sinusoidal wavefolder.
 /// The drive parameter increases the frequency of the sine curve, causing more distortion.
+/// 
+/// Desmos: https://www.desmos.com/calculator/zwffvndj7j
 pub fn get_wavefolder_output(drive: f32, input_sample: f32) -> f32 {
     let k = 1. + (drive * 3.);
     let wet = (2. * PI * k * input_sample).sin();
