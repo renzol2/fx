@@ -1,6 +1,10 @@
 # Delay
 
-A basic feedback delay.
+A basic feedback delay effect plugin with the following parameters:
+
+- **feedback**: the gain multiplier for the signal fed back into the delay line
+- **dry/wet**: yeah
+- **delay time**: the amount of time for the output signal to exit the delay line
 
 ## Building
 
