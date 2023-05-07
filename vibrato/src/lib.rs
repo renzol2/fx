@@ -1,10 +1,6 @@
+use fx::{delay_line::StereoDelay, DEFAULT_SAMPLE_RATE};
 use nih_plug::prelude::*;
 use std::sync::Arc;
-
-mod delay_line;
-use delay_line::StereoVibrato;
-
-mod oversampling;
 
 const MAX_DELAY_TIME_SECONDS: f32 = 5.0;
 const WOW_MAX_FREQUENCY_RATIO: f32 = 0.123;
@@ -15,8 +11,8 @@ const PARAMETER_MINIMUM: f32 = 0.01;
 
 pub struct Vibrato {
     params: Arc<VibratoParams>,
-    wow_vibrato: StereoVibrato,
-    flutter_vibrato: StereoVibrato,
+    wow_vibrato: StereoDelay,
+    flutter_vibrato: StereoDelay,
 }
 
 #[derive(Params)]
@@ -36,12 +32,10 @@ struct VibratoParams {
 
 impl Default for Vibrato {
     fn default() -> Self {
-        // This sample rate can change once the plugin is initialized
-        let default_sample_rate = 44100;
         Self {
             params: Arc::new(VibratoParams::default()),
-            wow_vibrato: StereoVibrato::new(MAX_DELAY_TIME_SECONDS, default_sample_rate),
-            flutter_vibrato: StereoVibrato::new(MAX_DELAY_TIME_SECONDS, default_sample_rate),
+            wow_vibrato: StereoDelay::new(MAX_DELAY_TIME_SECONDS, DEFAULT_SAMPLE_RATE),
+            flutter_vibrato: StereoDelay::new(MAX_DELAY_TIME_SECONDS, DEFAULT_SAMPLE_RATE),
         }
     }
 }
@@ -109,8 +103,6 @@ impl Plugin for Vibrato {
 
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    // The first audio IO layout is used as the default. The other layouts may be selected either
-    // explicitly or automatically by the host or the user depending on the plugin API/backend.
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout {
         main_input_channels: NonZeroU32::new(2),
         main_output_channels: NonZeroU32::new(2),
@@ -118,9 +110,6 @@ impl Plugin for Vibrato {
         aux_input_ports: &[],
         aux_output_ports: &[],
 
-        // Individual ports and the layout as a whole can be named here. By default these names
-        // are generated as needed. This layout will be called 'Stereo', while a layout with
-        // only one input and output channel would be called 'Mono'.
         names: PortNames::const_default(),
     }];
 
@@ -129,13 +118,7 @@ impl Plugin for Vibrato {
 
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
-    // If the plugin can send or receive SysEx messages, it can define a type to wrap around those
-    // messages here. The type implements the `SysExMessage` trait, which allows conversion to and
-    // from plain byte buffers.
     type SysExMessage = ();
-    // More advanced plugins can use this to run expensive background tasks. See the field's
-    // documentation for more information. `()` means that the plugin does not have any background
-    // tasks.
     type BackgroundTask = ();
 
     fn params(&self) -> Arc<dyn Params> {
@@ -217,14 +200,12 @@ impl ClapPlugin for Vibrato {
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
 
-    // Don't forget to change these features
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Stereo];
 }
 
 impl Vst3Plugin for Vibrato {
     const VST3_CLASS_ID: [u8; 16] = *b"renzol2__vibrato";
 
-    // And also don't forget to change these categories
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[
         Vst3SubCategory::Fx,
         Vst3SubCategory::PitchShift,
@@ -232,5 +213,4 @@ impl Vst3Plugin for Vibrato {
     ];
 }
 
-// nih_export_clap!(Vibrato);
 nih_export_vst3!(Vibrato);

@@ -1,6 +1,6 @@
 [package]
 name = "distortion"
-version = "0.1.2"
+version = "0.1.4"
 edition = "2021"
 authors = ["Renzo Ledesma <renzol2@illinois.edu>"]
 license = "GPL-3.0-or-later"
@@ -14,13 +14,13 @@ members = ["xtask"]
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
+fx = { path = "../fx" }
 # Remove the `assert_process_allocs` feature to allow allocations on the audio
 # thread in debug builds.
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }
 # Uncomment the below line to disable the on-by-default VST3 feature to remove
 # the GPL compatibility requirement
 # nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default_features = false, features = ["assert_process_allocs"] }
-approx = "0.5.1"
 
 [profile.release]
 lto = "thin"

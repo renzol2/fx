@@ -1,4 +1,4 @@
-/// A basic DC filter.
+/// A basic DC filter for correcting DC offset.
 /// 
 /// Adapted for non-SIMD from Fredemus in va-filter, which is licensed under GPL 3.0:
 /// https://github.com/Fredemus/va-filter

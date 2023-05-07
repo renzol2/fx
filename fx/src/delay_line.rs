@@ -19,7 +19,7 @@ fn get_cubic_interpolated_value(fpos: f32, xm1: f32, x0: f32, x1: f32, x2: f32) 
     (((a * fpos) + b) * fpos + c) * fpos + x0
 }
 
-pub struct StereoVibrato {
+pub struct StereoDelay {
     buffer_l: Vec<f32>,
     buffer_r: Vec<f32>,
     write_pointer: usize,
@@ -27,8 +27,13 @@ pub struct StereoVibrato {
     sample_rate: usize,
 }
 
-impl StereoVibrato {
-    pub fn new(max_delay_time: f32, sample_rate: usize) -> StereoVibrato {
+impl StereoDelay {
+    ///
+    /// # Arguments
+    /// * `max_delay_time` - the maximum delay time in seconds
+    /// * `sample_rate` - the sample rate in samples per seconds
+    ///
+    pub fn new(max_delay_time: f32, sample_rate: usize) -> StereoDelay {
         let buffer_size = (max_delay_time * sample_rate as f32) as usize;
 
         // Instantiate buffers
@@ -38,7 +43,7 @@ impl StereoVibrato {
         buffer_r.resize(buffer_size, 0.0);
 
         // Create vibrato object
-        StereoVibrato {
+        StereoDelay {
             buffer_l,
             buffer_r,
             write_pointer: 0,
@@ -92,7 +97,7 @@ impl StereoVibrato {
     ///
     /// Calculate samples from buffer given LFO width in samples.
     /// Phase shift offsets right read pointer for stereo width.
-    /// 
+    ///
     fn read_interpolated_samples(&self, lfo_width: f32, phase_shift: f32) -> (f32, f32) {
         // Recalculate read pointer with respect to write pointer
         let mut lfo_phase = self.lfo_phase;
@@ -107,6 +112,43 @@ impl StereoVibrato {
         let out_l = self.get_cubic_interpolated_value_from_buffer(t_l, &self.buffer_l);
         let out_r = self.get_cubic_interpolated_value_from_buffer(t_r, &self.buffer_r);
 
+        (out_l, out_r)
+    }
+
+    pub fn process_with_chorus(
+        &mut self,
+        input: (f32, f32),
+        lfo_frequency: f32,
+        vibrato_width: f32,
+        lfo_phase_right_offset: f32,
+        depth: f32,
+        feedback: f32,
+    ) -> (f32, f32) {
+        let interpolated_samples =
+            self.read_interpolated_samples(vibrato_width, lfo_phase_right_offset);
+
+        // Store information in buffers
+        let (in_l, in_r) = input;
+        let (interpolated_l, interpolated_r) = interpolated_samples;
+        self.buffer_l[self.write_pointer] = in_l + interpolated_l * feedback;
+        self.buffer_r[self.write_pointer] = in_r + interpolated_r * feedback;
+
+        // Increment write pointer at constant rate
+        self.write_pointer += 1;
+
+        if self.write_pointer >= self.buffer_l.len() {
+            self.write_pointer = 0;
+        }
+
+        // Update LFO phase
+        let phase_increment = lfo_frequency * (self.sample_rate as f32).recip();
+        self.lfo_phase += phase_increment;
+        if self.lfo_phase >= 1.0 {
+            self.lfo_phase -= 1.0;
+        }
+
+        let out_l = in_l + depth * interpolated_samples.0;
+        let out_r = in_r + depth * interpolated_samples.1;
         (out_l, out_r)
     }
 
@@ -151,11 +193,12 @@ pub struct DelayLine {
     dry_mix: f32,
     wet_mix: f32,
     feedback: f32,
+    sample_rate: usize,
     lfo_phase: f32,
 }
 
 impl DelayLine {
-    pub fn new(buffer_length: usize) -> DelayLine {
+    pub fn new(buffer_length: usize, sample_rate: usize) -> DelayLine {
         let mut circular_buffer = Vec::with_capacity(buffer_length);
         circular_buffer.resize(buffer_length, 0.0);
         DelayLine {
@@ -166,6 +209,7 @@ impl DelayLine {
             wet_mix: 1.0,
             feedback: 0.5,
             delay_time: 0,
+            sample_rate,
             lfo_phase: 0.0,
         }
     }
@@ -205,6 +249,18 @@ impl DelayLine {
     }
 
     ///
+    /// Resize and clear the circular buffer when changing sample rate.
+    ///
+    /// # Arguments
+    /// - `new_size`: the new size of the circular buffer, in samples
+    /// - `sample_rate`: the new sample rate
+    ///
+    pub fn resize_buffer_with_sample_rate(&mut self, new_size: usize, sample_rate: usize) {
+        self.sample_rate = sample_rate;
+        self.circular_buffer.resize(new_size, 0.0);
+    }
+
+    ///
     /// Calculates value at time `t` using cubic interpolation.
     ///
     fn get_cubic_interpolated_value_from_buffer(&self, t: f32) -> f32 {
@@ -222,19 +278,6 @@ impl DelayLine {
         get_cubic_interpolated_value(finpos, xm1, x0, x1, x2)
     }
 
-    fn get_linear_interpolated_value_from_buffer(&self, t: f32) -> f32 {
-        // Use linear interpolation to read a fractional index
-        // into the buffer by using the fractional component of
-        // the read pointer to adjust weights of adjacent samples
-        let time = t % self.circular_buffer.len() as f32;
-        let fraction = time - time.floor();
-        let previous_sample_index = time.floor() as usize;
-        let next_sample_index = (previous_sample_index + 1) % self.circular_buffer.len() as usize;
-
-        fraction * self.circular_buffer[next_sample_index]
-            + (1.0 - fraction) * self.circular_buffer[previous_sample_index]
-    }
-
     fn get_interpolated_sample(&self, lfo_width: f32, sample_rate: f32, phase_shift: f32) -> f32 {
         // Recalculate read pointer with respect to write pointer
         let mut lfo_phase = self.lfo_phase + phase_shift;
@@ -249,28 +292,16 @@ impl DelayLine {
         self.get_cubic_interpolated_value_from_buffer(t)
     }
 
-    pub fn process(&mut self, input: f32) -> f32 {
+    pub fn process_with_delay(&mut self, input: f32) -> f32 {
         let buffer_length = self.circular_buffer.len();
-        // let output = self.dry_mix * input + self.wet_mix * self.circular_buffer[self.read_pointer];
-
-        // Write input signal and feedback signal into buffer
-        // self.circular_buffer[wp] =
-        //     input + (self.circular_buffer[self.read_pointer] * self.feedback);
-
-        // FIXME: doesn't prevent zipper noise
-        // Use linear interpolation to calculate output value
-        let rp = (self.write_pointer as f32 - self.delay_time as f32 + buffer_length as f32 - 3.0)
+        let t = (self.write_pointer as f32 - self.delay_time as f32 + buffer_length as f32 - 3.0)
             % buffer_length as f32;
-        let fraction = rp.fract();
-        let prev_sample = rp.floor() as usize;
-        let next_sample = (prev_sample + 1) % buffer_length;
-        let interpolated_sample = fraction * self.circular_buffer[next_sample]
-            + (1.0 - fraction) * self.circular_buffer[prev_sample];
+        let interpolated_sample = self.get_cubic_interpolated_value_from_buffer(t);
         let output = self.dry_mix * input + self.wet_mix * interpolated_sample;
 
         // Write input signal and feedback signal into buffer
         self.circular_buffer[self.write_pointer] =
-            input + (self.circular_buffer[rp as usize] * self.feedback);
+            input + (self.circular_buffer[t as usize] * self.feedback);
 
         self.read_pointer += 1;
         self.write_pointer += 1;
@@ -285,65 +316,10 @@ impl DelayLine {
         output
     }
 
-    pub fn process_with_vibrato(
-        &mut self,
-        input: f32,
-        lfo_frequency: f32,
-        vibrato_width: f32,
-        sample_rate: f32,
-    ) -> f32 {
-        let interpolated_sample = self.get_interpolated_sample(vibrato_width, sample_rate, 0.0);
-
-        // Store information in buffer
-        self.circular_buffer[self.write_pointer] = input;
-
-        // Increment write pointer at constant rate
-        self.write_pointer += 1;
-
-        if self.write_pointer >= self.circular_buffer.len() {
-            self.write_pointer = 0;
-        }
-
-        // Update LFO phase
-        self.lfo_phase += lfo_frequency * sample_rate.recip();
-        if self.lfo_phase >= 1.0 {
-            self.lfo_phase -= 1.0;
-        }
-
-        interpolated_sample
-    }
-
-    pub fn process_with_flanger(
-        &mut self,
-        input: f32,
-        lfo_frequency: f32,
-        vibrato_width: f32,
-        sample_rate: f32,
-        feedback: f32,
-        depth: f32,
-    ) -> f32 {
-        let interpolated_sample = self.get_interpolated_sample(vibrato_width, sample_rate, 0.0);
-
-        // Store information in buffer
-        self.circular_buffer[self.write_pointer] = input + (interpolated_sample * feedback);
-
-        // Increment write pointer at constant rate
-        self.write_pointer += 1;
-
-        if self.write_pointer >= self.circular_buffer.len() {
-            self.write_pointer = 0;
-        }
-
-        // Update LFO phase
-        self.lfo_phase += lfo_frequency * sample_rate;
-        if self.lfo_phase >= 1.0 {
-            self.lfo_phase -= 1.0;
-        }
-
-        input + depth * interpolated_sample
-    }
-
-    pub fn process_with_chorus(
+    ///
+    /// I don't know what happened here, but the effect was cool enough that I want to try using it.
+    ///
+    pub fn process_with_glitch(
         &mut self,
         input: f32,
         lfo_frequency: f32,
@@ -370,37 +346,5 @@ impl DelayLine {
         }
 
         input + depth * interpolated_sample
-    }
-
-    pub fn process_with_stereo_chorus(
-        &mut self,
-        input: f32,
-        lfo_frequency: f32,
-        vibrato_width: f32,
-        sample_rate: f32,
-        depth: f32,
-    ) -> (f32, f32) {
-        let interpolated_sample_l = self.get_interpolated_sample(vibrato_width, sample_rate, 0.0);
-        let interpolated_sample_r = self.get_interpolated_sample(vibrato_width, sample_rate, 0.25);
-
-        // Store information in buffer
-        self.circular_buffer[self.write_pointer] = input;
-
-        // Increment write pointer at constant rate
-        self.write_pointer += 1;
-
-        if self.write_pointer >= self.circular_buffer.len() {
-            self.write_pointer = 0;
-        }
-
-        // Update LFO phase
-        self.lfo_phase += lfo_frequency * sample_rate;
-        if self.lfo_phase >= 1.0 {
-            self.lfo_phase -= 1.0;
-        }
-
-        let output_l = input + depth * interpolated_sample_l;
-        let output_r = input + depth * interpolated_sample_r;
-        (output_l, output_r)
     }
 }

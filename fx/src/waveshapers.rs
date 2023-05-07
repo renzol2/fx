@@ -1,36 +1,4 @@
-use nih_plug::prelude::*;
 use std::f32::consts::{E, PI};
-
-#[derive(Enum, Debug, PartialEq, Eq)]
-pub enum DistortionType {
-    #[id = "saturation"]
-    #[name = "Saturation"]
-    Saturation,
-
-    #[id = "hard-clipping"]
-    #[name = "Hard clipping"]
-    HardClipping,
-
-    #[id = "fuzzy-rectifier"]
-    #[name = "Fuzzy rectifier"]
-    FuzzyRectifier,
-
-    #[id = "shockley-diode-rectifier"]
-    #[name = "Shockley diode rectifier"]
-    ShockleyDiodeRectifier,
-
-    #[id = "dropout"]
-    #[name = "Dropout"]
-    Dropout,
-
-    #[id = "double-soft-clipper"]
-    #[name = "Double soft clipper"]
-    DoubleSoftClipper,
-
-    #[id = "wavefolding"]
-    #[name = "Wavefolding"]
-    Wavefolding,
-}
 
 /// Processes an input sample through a static, saturating waveshaper.
 /// Drive parameter increases the saturation.
@@ -169,21 +137,7 @@ pub fn get_wavefolder_output(drive: f32, input_sample: f32) -> f32 {
     (1. - 0.3 * drive) * wet
 }
 
-pub fn process_sample(distortion_type: &DistortionType, drive: f32, input_sample: f32) -> f32 {
-    match distortion_type {
-        DistortionType::Saturation => get_saturator_output(drive, input_sample),
-        DistortionType::HardClipping => get_hard_clipper_output(drive, input_sample),
-        DistortionType::FuzzyRectifier => get_fuzzy_rectifier_output(drive, input_sample),
-        DistortionType::ShockleyDiodeRectifier => {
-            get_shockley_diode_rectifier_output(drive, input_sample)
-        }
-        DistortionType::Dropout => get_dropout_output(drive, input_sample),
-        DistortionType::DoubleSoftClipper => get_double_soft_clipper_output(drive, input_sample),
-        DistortionType::Wavefolding => get_wavefolder_output(drive, input_sample),
-    }
-}
-
-// TODO: write tests
+// TODO: write more tests
 #[cfg(test)]
 mod tests {
     use approx::relative_eq;
@@ -194,7 +148,7 @@ mod tests {
     fn shockley_diode_output_never_clips() {
         let drive = 1.0;
         for n in -100..100 {
-            let n = n.to_f32() / 100.0;
+            let n = n as f32 / 100.0;
             assert!(get_shockley_diode_rectifier_output(drive, n).abs() <= 1.);
         }
     }
@@ -203,7 +157,7 @@ mod tests {
     fn waveshapers_return_correct_dc_offset() {
         let num_drive_tests = 100;
         for test_num in 0..num_drive_tests {
-            let drive = test_num.to_f32() / num_drive_tests.to_f32();
+            let drive = test_num as f32 / num_drive_tests as f32;
             // Use approx to avoid errors from floating point arithmetic
             assert!(relative_eq!(get_saturator_output(drive, 0.), 0.));
             assert!(relative_eq!(get_hard_clipper_output(drive, 0.), 0.));

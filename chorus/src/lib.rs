@@ -1,16 +1,13 @@
+use fx::{delay_line::StereoDelay, DEFAULT_SAMPLE_RATE};
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
-mod delay_line;
-use delay_line::StereoChorus;
-
 const MAX_DELAY_TIME_SECONDS: f32 = 5.0;
-const DEFAULT_SAMPLE_RATE: usize = 44100;
 const PARAMETER_MINIMUM: f32 = 0.01;
 
 pub struct Chorus {
     params: Arc<ChorusParams>,
-    chorus: StereoChorus,
+    chorus: StereoDelay,
 }
 
 #[derive(Params)]
@@ -38,7 +35,7 @@ impl Default for Chorus {
     fn default() -> Self {
         Self {
             params: Arc::new(ChorusParams::default()),
-            chorus: StereoChorus::new(MAX_DELAY_TIME_SECONDS, DEFAULT_SAMPLE_RATE),
+            chorus: StereoDelay::new(MAX_DELAY_TIME_SECONDS, DEFAULT_SAMPLE_RATE),
         }
     }
 }
@@ -123,7 +120,7 @@ impl Default for ChorusParams {
 }
 
 impl Plugin for Chorus {
-    const NAME: &'static str = "Chorus v0.0.3";
+    const NAME: &'static str = "Chorus v0.0.4";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -207,17 +204,18 @@ impl ClapPlugin for Chorus {
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
 
-    // Don't forget to change these features
-    const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Stereo];
+    const CLAP_FEATURES: &'static [ClapFeature] = &[
+        ClapFeature::AudioEffect,
+        ClapFeature::Stereo,
+        ClapFeature::Chorus,
+    ];
 }
 
 impl Vst3Plugin for Chorus {
     const VST3_CLASS_ID: [u8; 16] = *b"renzol2___chorus";
 
-    // And also don't forget to change these categories
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Fx, Vst3SubCategory::Dynamics];
+        &[Vst3SubCategory::Fx, Vst3SubCategory::Delay];
 }
 
-// nih_export_clap!(Chorus);
 nih_export_vst3!(Chorus);
