@@ -1,20 +1,37 @@
+use fx::{dynamics::DynamicRangeProcessor, DEFAULT_SAMPLE_RATE};
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
 pub struct Compression {
     params: Arc<CompressionParams>,
+    processor: DynamicRangeProcessor,
 }
 
 #[derive(Params)]
 struct CompressionParams {
-    #[id = "gain"]
-    pub gain: FloatParam,
+    #[id = "input-gain"]
+    pub input_gain: FloatParam,
+    #[id = "threshold"]
+    pub threshold: FloatParam,
+    #[id = "ratio"]
+    pub ratio: FloatParam,
+    #[id = "attack"]
+    pub attack: FloatParam,
+    #[id = "release"]
+    pub release: FloatParam,
+    #[id = "makeup-gain"]
+    pub makeup_gain: FloatParam,
+    #[id = "dry-wet"]
+    pub dry_wet: FloatParam,
+    #[id = "use-expander"]
+    pub use_expander: BoolParam,
 }
 
 impl Default for Compression {
     fn default() -> Self {
         Self {
             params: Arc::new(CompressionParams::default()),
+            processor: DynamicRangeProcessor::new(DEFAULT_SAMPLE_RATE),
         }
     }
 }
@@ -22,11 +39,77 @@ impl Default for Compression {
 impl Default for CompressionParams {
     fn default() -> Self {
         Self {
-            // This gain is stored as linear gain. NIH-plug comes with useful conversion functions
-            // to treat these kinds of parameters as if we were dealing with decibels. Storing this
-            // as decibels is easier to work with, but requires a conversion for every sample.
-            gain: FloatParam::new(
-                "Gain",
+            input_gain: FloatParam::new(
+                "Input gain",
+                util::db_to_gain(0.0),
+                FloatRange::Skewed {
+                    min: util::db_to_gain(-30.0),
+                    max: util::db_to_gain(30.0),
+                    factor: FloatRange::gain_skew_factor(-30.0, 30.0),
+                },
+            )
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
+            .with_unit(" dB")
+            .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
+            .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+
+            threshold: FloatParam::new(
+                "Threshold",
+                0.0,
+                FloatRange::Linear {
+                    min: -60.0,
+                    max: 0.0,
+                },
+            )
+            .with_unit(" dB")
+            .with_smoother(SmoothingStyle::Exponential(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            ratio: FloatParam::new(
+                "Ratio",
+                4.0,
+                FloatRange::Skewed {
+                    min: 1.0,
+                    max: 20.0,
+                    factor: FloatRange::skew_factor(-1.3),
+                },
+            )
+            .with_unit(":1")
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            attack: FloatParam::new(
+                "Attack",
+                2.0,
+                FloatRange::Skewed {
+                    min: 0.01,
+                    max: 100.0,
+                    factor: FloatRange::skew_factor(-1.0),
+                },
+            )
+            .with_unit(" ms")
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            release: FloatParam::new(
+                "Release",
+                30.0,
+                FloatRange::Skewed {
+                    min: 1.0,
+                    max: 1000.0,
+                    factor: FloatRange::skew_factor(-2.0),
+                },
+            )
+            .with_unit(" ms")
+            .with_smoother(SmoothingStyle::Logarithmic(50.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            dry_wet: FloatParam::new("Dry/wet", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_smoother(SmoothingStyle::Exponential(50.0))
+                .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            makeup_gain: FloatParam::new(
+                "Makeup gain",
                 util::db_to_gain(0.0),
                 FloatRange::Skewed {
                     min: util::db_to_gain(-30.0),
@@ -36,29 +119,24 @@ impl Default for CompressionParams {
                     factor: FloatRange::gain_skew_factor(-30.0, 30.0),
                 },
             )
-            // Because the gain parameter is stored as linear gain instead of storing the value as
-            // decibels, we need logarithmic smoothing
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_unit(" dB")
-            // There are many predefined formatters we can use here. If the gain was stored as
-            // decibels instead of as a linear gain value, we could have also used the
-            // `.with_step_size(0.1)` function to get internal rounding.
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+
+            use_expander: BoolParam::new("Compress/Expand", false),
         }
     }
 }
 
 impl Plugin for Compression {
-    const NAME: &'static str = "Compression v0.0.1";
+    const NAME: &'static str = "Compression v0.0.3";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
 
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    // The first audio IO layout is used as the default. The other layouts may be selected either
-    // explicitly or automatically by the host or the user depending on the plugin API/backend.
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout {
         main_input_channels: NonZeroU32::new(2),
         main_output_channels: NonZeroU32::new(2),
@@ -66,9 +144,6 @@ impl Plugin for Compression {
         aux_input_ports: &[],
         aux_output_ports: &[],
 
-        // Individual ports and the layout as a whole can be named here. By default these names
-        // are generated as needed. This layout will be called 'Stereo', while a layout with
-        // only one input and output channel would be called 'Mono'.
         names: PortNames::const_default(),
     }];
 
@@ -77,13 +152,7 @@ impl Plugin for Compression {
 
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
-    // If the plugin can send or receive SysEx messages, it can define a type to wrap around those
-    // messages here. The type implements the `SysExMessage` trait, which allows conversion to and
-    // from plain byte buffers.
     type SysExMessage = ();
-    // More advanced plugins can use this to run expensive background tasks. See the field's
-    // documentation for more information. `()` means that the plugin does not have any background
-    // tasks.
     type BackgroundTask = ();
 
     fn params(&self) -> Arc<dyn Params> {
@@ -99,6 +168,8 @@ impl Plugin for Compression {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
+        let sample_rate = _buffer_config.sample_rate;
+        self.processor.set_sample_rate(sample_rate as usize);
         true
     }
 
@@ -113,13 +184,33 @@ impl Plugin for Compression {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        for channel_samples in buffer.iter_samples() {
-            // Smoothing is optionally built into the parameters themselves
-            let gain = self.params.gain.smoothed.next();
+        for mut channel_samples in buffer.iter_samples() {
+            // Update processor's parameters
+            let threshold = self.params.threshold.smoothed.next();
+            let ratio = self.params.ratio.smoothed.next();
+            let attack = self.params.attack.smoothed.next() * 0.001; // convert from ms to s
+            let release = self.params.release.smoothed.next() * 0.001; // convert from ms to s
+            let is_expander = self.params.use_expander.value();
+            self.processor
+                .set_parameters(threshold, ratio, attack, release, is_expander);
 
-            for sample in channel_samples {
-                *sample *= gain;
-            }
+            let input_gain = self.params.input_gain.smoothed.next();
+            let in_l = *channel_samples.get_mut(0).unwrap() * input_gain;
+            let in_r = *channel_samples.get_mut(1).unwrap() * input_gain;
+
+            // Process
+            let input = (in_l * input_gain, in_r * input_gain);
+            let makeup_gain = self.params.makeup_gain.smoothed.next();
+            let makeup_gain_db = util::gain_to_db_fast(makeup_gain);
+            let frame_out = self.processor.process_input_frame(input, makeup_gain_db);
+
+            // Apply dry/wet, then output
+            let dry_wet_ratio = self.params.dry_wet.smoothed.next();
+            let out_l = in_l * (1. - dry_wet_ratio) + frame_out.0 * dry_wet_ratio;
+            let out_r = in_r * (1. - dry_wet_ratio) + frame_out.1 * dry_wet_ratio;
+
+            *channel_samples.get_mut(0).unwrap() = out_l;
+            *channel_samples.get_mut(1).unwrap() = out_r;
         }
 
         ProcessStatus::Normal
