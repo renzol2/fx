@@ -1,36 +1,4 @@
-use nih_plug::prelude::*;
 use std::f32::consts::{E, PI};
-
-#[derive(Enum, Debug, PartialEq, Eq)]
-pub enum DistortionType {
-    #[id = "saturation"]
-    #[name = "Saturation"]
-    Saturation,
-
-    #[id = "hard-clipping"]
-    #[name = "Hard clipping"]
-    HardClipping,
-
-    #[id = "fuzzy-rectifier"]
-    #[name = "Fuzzy rectifier"]
-    FuzzyRectifier,
-
-    #[id = "shockley-diode-rectifier"]
-    #[name = "Shockley diode rectifier"]
-    ShockleyDiodeRectifier,
-
-    #[id = "dropout"]
-    #[name = "Dropout"]
-    Dropout,
-
-    #[id = "double-soft-clipper"]
-    #[name = "Double soft clipper"]
-    DoubleSoftClipper,
-
-    #[id = "wavefolding"]
-    #[name = "Wavefolding"]
-    Wavefolding,
-}
 
 /// Processes an input sample through a static, saturating waveshaper.
 /// Drive parameter increases the saturation.
@@ -47,7 +15,7 @@ pub fn get_saturator_output(drive: f32, input_sample: f32) -> f32 {
 /// Processes an input sample through a static hard clipper.
 /// Drive parameter increases distortion and reduces threshold.
 ///
-/// Desmos visualization of parameterization: https://www.desmos.com/calculator/7n1hzd53rf
+/// Desmos visualization of parameterization: https://www.desmos.com/calculator/ljssh5iqce
 pub fn get_hard_clipper_output(drive: f32, input_sample: f32) -> f32 {
     let threshold = 1. - 0.5 * drive;
     let slope = 1. + 0.5 * drive;
@@ -65,7 +33,7 @@ pub fn get_hard_clipper_output(drive: f32, input_sample: f32) -> f32 {
 /// Processes an input sample through a fuzz inducing rectifier.
 /// Drive parameter linearly changes waveshaper from a half-wave rectifier to a full-wave rectifier.
 ///
-/// Desmos visualization of parameterization: https://www.desmos.com/calculator/ty0gtxg43u
+/// Desmos visualization of parameterization: https://www.desmos.com/calculator/hzttouljdp
 pub fn get_fuzzy_rectifier_output(drive: f32, input_sample: f32) -> f32 {
     let x = input_sample;
     let output = if x >= 0. {
@@ -79,10 +47,10 @@ pub fn get_fuzzy_rectifier_output(drive: f32, input_sample: f32) -> f32 {
 /// Processes an input sample through a rectifying curve modeled after a Shockley-Diode circuit.
 /// Drive parameter changes the intensity of the curve.
 ///
-/// Based off Chowdhury's Shockley Diode rectifier approximation:
+/// Based off Chowdhury's Shockley Diode rectifier equation, modeled from William Shockley's work:
 /// https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
 ///
-/// Desmos visualization of parameterization: https://www.desmos.com/calculator/1xwge1y5pd
+/// Desmos visualization of parameterization: https://www.desmos.com/calculator/wduyw6huen
 pub fn get_shockley_diode_rectifier_output(drive: f32, input_sample: f32) -> f32 {
     let shockley_diode_output =
         (0.4 * drive + 0.1) * (E.powf((2. + 2. * drive) * input_sample) - 1.);
@@ -97,7 +65,7 @@ pub fn get_shockley_diode_rectifier_output(drive: f32, input_sample: f32) -> f32
 /// Based off Chowdhury's Dropout equation:
 /// https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
 ///
-/// Desmos visualization of parameterization: https://www.desmos.com/calculator/2dmj6p7yvk
+/// Desmos visualization of parameterization: https://www.desmos.com/calculator/mv32dtqhwe
 pub fn get_dropout_output(drive: f32, input_sample: f32) -> f32 {
     if drive == 0. {
         input_sample
@@ -136,7 +104,7 @@ fn lower_waveshaper(x: f32, lower_skew_param: f32) -> f32 {
 ///
 /// Based off Chowdhury's double soft clipper:
 /// https://ccrma.stanford.edu/~jatin/papers/Complex_NLs.pdf
-/// Desmos visualization of parameterization: https://www.desmos.com/calculator/bplxqizjbe
+/// Desmos visualization of parameterization: https://www.desmos.com/calculator/kngozoijks
 pub fn get_double_soft_clipper_output(drive: f32, input_sample: f32) -> f32 {
     let x = input_sample;
     let upper_limit_param = 1. - 0.4 * drive;
@@ -158,6 +126,8 @@ pub fn get_double_soft_clipper_output(drive: f32, input_sample: f32) -> f32 {
 
 /// Processes an input sample through a sinusoidal wavefolder.
 /// The drive parameter increases the frequency of the sine curve, causing more distortion.
+/// 
+/// Desmos: https://www.desmos.com/calculator/zwffvndj7j
 pub fn get_wavefolder_output(drive: f32, input_sample: f32) -> f32 {
     let k = 1. + (drive * 3.);
     let wet = (2. * PI * k * input_sample).sin();
@@ -169,21 +139,7 @@ pub fn get_wavefolder_output(drive: f32, input_sample: f32) -> f32 {
     (1. - 0.3 * drive) * wet
 }
 
-pub fn process_sample(distortion_type: &DistortionType, drive: f32, input_sample: f32) -> f32 {
-    match distortion_type {
-        DistortionType::Saturation => get_saturator_output(drive, input_sample),
-        DistortionType::HardClipping => get_hard_clipper_output(drive, input_sample),
-        DistortionType::FuzzyRectifier => get_fuzzy_rectifier_output(drive, input_sample),
-        DistortionType::ShockleyDiodeRectifier => {
-            get_shockley_diode_rectifier_output(drive, input_sample)
-        }
-        DistortionType::Dropout => get_dropout_output(drive, input_sample),
-        DistortionType::DoubleSoftClipper => get_double_soft_clipper_output(drive, input_sample),
-        DistortionType::Wavefolding => get_wavefolder_output(drive, input_sample),
-    }
-}
-
-// TODO: write tests
+// TODO: write more tests
 #[cfg(test)]
 mod tests {
     use approx::relative_eq;
@@ -194,7 +150,7 @@ mod tests {
     fn shockley_diode_output_never_clips() {
         let drive = 1.0;
         for n in -100..100 {
-            let n = n.to_f32() / 100.0;
+            let n = n as f32 / 100.0;
             assert!(get_shockley_diode_rectifier_output(drive, n).abs() <= 1.);
         }
     }
@@ -203,7 +159,7 @@ mod tests {
     fn waveshapers_return_correct_dc_offset() {
         let num_drive_tests = 100;
         for test_num in 0..num_drive_tests {
-            let drive = test_num.to_f32() / num_drive_tests.to_f32();
+            let drive = test_num as f32 / num_drive_tests as f32;
             // Use approx to avoid errors from floating point arithmetic
             assert!(relative_eq!(get_saturator_output(drive, 0.), 0.));
             assert!(relative_eq!(get_hard_clipper_output(drive, 0.), 0.));

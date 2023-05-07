@@ -1,15 +1,15 @@
+use fx::delay_line::DelayLine;
+use fx::DEFAULT_SAMPLE_RATE;
 use nih_plug::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-
-mod delay_line;
-use delay_line::DelayLine;
 
 const MAX_DELAY_TIME_SECONDS: f32 = 5.0;
 
 pub struct Delay {
     params: Arc<DelayParams>,
-    delay_line: DelayLine,
+    delay_line_l: DelayLine,
+    delay_line_r: DelayLine,
     should_update_delay_line: Arc<AtomicBool>,
 }
 
@@ -31,7 +31,14 @@ impl Default for Delay {
         Self {
             params: Arc::new(DelayParams::new(should_update_delay_line.clone())),
             should_update_delay_line,
-            delay_line: DelayLine::new(44100 * MAX_DELAY_TIME_SECONDS as usize),
+            delay_line_l: DelayLine::new(
+                DEFAULT_SAMPLE_RATE * MAX_DELAY_TIME_SECONDS as usize,
+                DEFAULT_SAMPLE_RATE,
+            ),
+            delay_line_r: DelayLine::new(
+                DEFAULT_SAMPLE_RATE * MAX_DELAY_TIME_SECONDS as usize,
+                DEFAULT_SAMPLE_RATE,
+            ),
         }
     }
 }
@@ -82,15 +89,13 @@ impl DelayParams {
 }
 
 impl Plugin for Delay {
-    const NAME: &'static str = "Delay v0.0.2";
+    const NAME: &'static str = "Delay v0.0.4";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
 
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    // The first audio IO layout is used as the default. The other layouts may be selected either
-    // explicitly or automatically by the host or the user depending on the plugin API/backend.
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout {
         main_input_channels: NonZeroU32::new(2),
         main_output_channels: NonZeroU32::new(2),
@@ -98,9 +103,6 @@ impl Plugin for Delay {
         aux_input_ports: &[],
         aux_output_ports: &[],
 
-        // Individual ports and the layout as a whole can be named here. By default these names
-        // are generated as needed. This layout will be called 'Stereo', while a layout with
-        // only one input and output channel would be called 'Mono'.
         names: PortNames::const_default(),
     }];
 
@@ -109,13 +111,7 @@ impl Plugin for Delay {
 
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
-    // If the plugin can send or receive SysEx messages, it can define a type to wrap around those
-    // messages here. The type implements the `SysExMessage` trait, which allows conversion to and
-    // from plain byte buffers.
     type SysExMessage = ();
-    // More advanced plugins can use this to run expensive background tasks. See the field's
-    // documentation for more information. `()` means that the plugin does not have any background
-    // tasks.
     type BackgroundTask = ();
 
     fn params(&self) -> Arc<dyn Params> {
@@ -132,9 +128,13 @@ impl Plugin for Delay {
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
         let fs = _buffer_config.sample_rate;
-        self.delay_line
+        self.delay_line_l
             .resize_buffer((fs * MAX_DELAY_TIME_SECONDS) as usize);
-        self.delay_line
+        self.delay_line_l
+            .set_delay_time(self.params.delay_time.value(), fs);
+        self.delay_line_r
+            .resize_buffer((fs * MAX_DELAY_TIME_SECONDS) as usize);
+        self.delay_line_r
             .set_delay_time(self.params.delay_time.value(), fs);
         true
     }
@@ -160,29 +160,42 @@ impl Plugin for Delay {
             let delay_time_ms = self.params.delay_time.smoothed.next();
             let feedback = self.params.feedback.smoothed.next();
             let dry_wet = self.params.dry_wet_ratio.smoothed.next();
-            self.delay_line.set_delay_time(delay_time_ms, sample_rate);
-            self.delay_line.set_feedback(feedback);
-            self.delay_line.set_dry_wet(1.0 - dry_wet, dry_wet);
+
+            // Set both delay lines
+            self.delay_line_l.set_delay_time(delay_time_ms, sample_rate);
+            self.delay_line_l.set_feedback(feedback);
+            self.delay_line_l.set_dry_wet(1.0 - dry_wet, dry_wet);
+            self.delay_line_r.set_delay_time(delay_time_ms, sample_rate);
+            self.delay_line_r.set_feedback(feedback);
+            self.delay_line_r.set_dry_wet(1.0 - dry_wet, dry_wet);
         }
-        for channel_samples in buffer.iter_samples() {
+        for mut channel_samples in buffer.iter_samples() {
             // Set parameters while smoothing
             if self.params.delay_time.smoothed.is_smoothing() {
                 let delay_time_ms = self.params.delay_time.smoothed.next();
-                self.delay_line.set_delay_time(delay_time_ms, sample_rate)
+                self.delay_line_l.set_delay_time(delay_time_ms, sample_rate);
+                self.delay_line_r.set_delay_time(delay_time_ms, sample_rate);
             }
             if self.params.feedback.smoothed.is_smoothing() {
                 let feedback = self.params.feedback.smoothed.next();
-                self.delay_line.set_feedback(feedback);
+                self.delay_line_l.set_feedback(feedback);
+                self.delay_line_r.set_feedback(feedback);
             }
             if self.params.dry_wet_ratio.smoothed.is_smoothing() {
                 let dry_wet = self.params.dry_wet_ratio.smoothed.next();
-                self.delay_line.set_dry_wet(1.0 - dry_wet, dry_wet);
+                self.delay_line_l.set_dry_wet(1.0 - dry_wet, dry_wet);
+                self.delay_line_r.set_dry_wet(1.0 - dry_wet, dry_wet);
             }
 
-            // Apply delay
-            for sample in channel_samples {
-                *sample = self.delay_line.process(*sample);
-            }
+            // Process input
+            let sample_l = *channel_samples.get_mut(0).unwrap();
+            let sample_r = *channel_samples.get_mut(1).unwrap();
+
+            let processed_l = self.delay_line_l.process_with_delay(sample_l);
+            let processed_r = self.delay_line_r.process_with_delay(sample_r);
+
+            *channel_samples.get_mut(0).unwrap() = processed_l;
+            *channel_samples.get_mut(1).unwrap() = processed_r;
         }
 
         ProcessStatus::Normal
@@ -202,7 +215,6 @@ impl ClapPlugin for Delay {
 impl Vst3Plugin for Delay {
     const VST3_CLASS_ID: [u8; 16] = *b"renzol2____delay";
 
-    // And also don't forget to change these categories
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
         &[Vst3SubCategory::Fx, Vst3SubCategory::Dynamics];
 }

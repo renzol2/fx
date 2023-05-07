@@ -1,12 +1,22 @@
-use freeverb::Freeverb;
+use fx::{freeverb::Freeverb, moorer_verb::MoorerReverb, DEFAULT_SAMPLE_RATE};
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
-mod freeverb;
+#[derive(Enum, Debug, PartialEq, Eq)]
+pub enum ReverbType {
+    #[id = "freeverb"]
+    #[name = "Freeverb"]
+    Freeverb,
+
+    #[id = "moorer"]
+    #[name = "Moorer"]
+    Moorer,
+}
 
 pub struct Reverb {
     params: Arc<ReverbParams>,
     freeverb: Freeverb,
+    moorer_reverb: MoorerReverb,
 }
 
 #[derive(Params)]
@@ -24,17 +34,26 @@ struct ReverbParams {
     pub room_size: FloatParam,
 
     #[id = "dampening"]
-    pub dampening: FloatParam,
+    pub damping: FloatParam,
 
     #[id = "frozen"]
     pub frozen: BoolParam,
+
+    #[id = "reverb-type"]
+    pub reverb_type: EnumParam<ReverbType>,
+
+    #[id = "width"]
+    pub width: FloatParam,
+    // TODO: add a low pass and/or high pass parameter
 }
 
 impl Default for Reverb {
     fn default() -> Self {
+        // actual sample rates are set later during initialization
         Self {
             params: Arc::new(ReverbParams::default()),
-            freeverb: Freeverb::new(44100),  // default, can set later during initialization
+            freeverb: Freeverb::new(DEFAULT_SAMPLE_RATE),
+            moorer_reverb: MoorerReverb::new(DEFAULT_SAMPLE_RATE),
         }
     }
 }
@@ -66,7 +85,8 @@ impl Default for ReverbParams {
                 },
             )
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
-            .with_unit(" dB") .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
+            .with_unit(" dB")
+            .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
 
             dry_wet_ratio: FloatParam::new(
@@ -77,32 +97,54 @@ impl Default for ReverbParams {
             .with_smoother(SmoothingStyle::Linear(50.0))
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
-            room_size: FloatParam::new(
-                "Room size",
-                0.5,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+            room_size: FloatParam::new("Room size", 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_smoother(SmoothingStyle::Linear(50.0))
+                .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
-            dampening: FloatParam::new(
-                "Dampening",
-                0.5,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_smoother(SmoothingStyle::Linear(50.0))
-            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+            damping: FloatParam::new("Dampening", 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_smoother(SmoothingStyle::Linear(50.0))
+                .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
-            frozen: BoolParam::new(
-                "Frozen",
-                false,
-            ),
+            frozen: BoolParam::new("Frozen", false),
+
+            reverb_type: EnumParam::new("Type", ReverbType::Freeverb),
+
+            width: FloatParam::new("Width", 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_smoother(SmoothingStyle::Linear(50.0))
+                .with_value_to_string(formatters::v2s_f32_rounded(2)),
         }
     }
 }
 
+impl Reverb {
+    fn update_reverbs(&mut self) {
+        let room_size_smoothed = &self.params.room_size.smoothed;
+        let damping_smoothed = &self.params.damping.smoothed;
+        let width_smoothed = &self.params.width.smoothed;
+
+        // Update reverbs while parameters smooth
+        if room_size_smoothed.is_smoothing() {
+            self.freeverb.set_room_size(room_size_smoothed.next());
+            self.moorer_reverb.set_room_size(room_size_smoothed.next());
+        }
+        if damping_smoothed.is_smoothing() {
+            self.freeverb.set_damping(damping_smoothed.next());
+            self.moorer_reverb.set_damping(damping_smoothed.next());
+        }
+        if width_smoothed.is_smoothing() {
+            self.freeverb.set_width(width_smoothed.next());
+            self.moorer_reverb.set_width(width_smoothed.next());
+        }
+
+        // Check if we should freeze the reverb
+        let frozen = self.params.frozen.value();
+        self.freeverb.set_frozen(frozen);
+        self.moorer_reverb.set_frozen(frozen);
+    }
+}
+
 impl Plugin for Reverb {
-    const NAME: &'static str = "Reverb v0.0.2";
+    const NAME: &'static str = "Reverb v0.0.10";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -147,7 +189,10 @@ impl Plugin for Reverb {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
-        self.freeverb.generate_filters(_buffer_config.sample_rate as usize);
+        self.freeverb
+            .generate_filters(_buffer_config.sample_rate as usize);
+        self.moorer_reverb
+            .generate_filters(_buffer_config.sample_rate as usize);
         true
     }
 
@@ -162,30 +207,29 @@ impl Plugin for Reverb {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        // Get parameters
-        let room_size = self.params.room_size.smoothed.next();
-        let dampening = self.params.dampening.smoothed.next();
-        let frozen = self.params.frozen.value();
-
-        // Update freeverb
-        self.freeverb.set_room_size(room_size);
-        self.freeverb.set_dampening(dampening);
-        self.freeverb.set_frozen(frozen);
-
-        // Process inputs
         for mut channel_samples in buffer.iter_samples() {
+            // Update reverbs based on parameters
+            self.update_reverbs();
+
+            // Get input/output gain
             let input_gain = self.params.input_gain.smoothed.next();
             let output_gain = self.params.output_gain.smoothed.next();
 
             let in_l = *channel_samples.get_mut(0).unwrap();
             let in_r = *channel_samples.get_mut(1).unwrap();
-            
-            let frame_out = self.freeverb.tick((in_l * input_gain, in_r * input_gain));
 
+            // Process with reverb
+            let input = (in_l * input_gain, in_r * input_gain);
+            let frame_out = match self.params.reverb_type.value() {
+                ReverbType::Freeverb => self.freeverb.tick(input),
+                ReverbType::Moorer => self.moorer_reverb.tick(input),
+            };
+
+            // Apply dry/wet, then output
             let dry_wet_ratio = self.params.dry_wet_ratio.smoothed.next();
             let out_l = in_l * (1. - dry_wet_ratio) + frame_out.0 * dry_wet_ratio;
             let out_r = in_r * (1. - dry_wet_ratio) + frame_out.1 * dry_wet_ratio;
-            
+
             *channel_samples.get_mut(0).unwrap() = out_l * output_gain;
             *channel_samples.get_mut(1).unwrap() = out_r * output_gain;
         }
@@ -196,7 +240,7 @@ impl Plugin for Reverb {
 
 impl ClapPlugin for Reverb {
     const CLAP_ID: &'static str = "https://renzomledesma.me";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("Algorithmic reverb effects");
+    const CLAP_DESCRIPTION: Option<&'static str> = Some("Classic algorithmic reverb effects");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
 
@@ -210,11 +254,8 @@ impl ClapPlugin for Reverb {
 impl Vst3Plugin for Reverb {
     const VST3_CLASS_ID: [u8; 16] = *b"renzol2___reverb";
 
-    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[
-        Vst3SubCategory::Fx,
-        Vst3SubCategory::Dynamics,
-        Vst3SubCategory::Reverb,
-    ];
+    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
+        &[Vst3SubCategory::Fx, Vst3SubCategory::Reverb];
 }
 
 // nih_export_clap!(Reverb);

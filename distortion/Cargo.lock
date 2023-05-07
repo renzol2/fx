@@ -478,9 +478,9 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 
 [[package]]
 name = "distortion"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
- "approx",
+ "fx",
  "nih_plug",
 ]
 
@@ -498,6 +498,13 @@ name = "foreign-types-shared"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
+
+[[package]]
+name = "fx"
+version = "0.0.1"
+dependencies = [
+ "approx",
+]
 
 [[package]]
 name = "getrandom"

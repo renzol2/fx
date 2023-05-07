@@ -1,6 +1,6 @@
 # Equalizer
 
-A generic equalizer implemented using a biquad filter.
+A straightforward equalizer effect implemented using a biquad filter.
 
 Supports 7 filter types:
 
@@ -11,11 +11,6 @@ Supports 7 filter types:
 5. peaking (parametric) EQ
 6. low shelf
 7. high shelf
-
-There are a few known issues with this implementation so far:
-
-- When working with stereo input, low pass and band pass turns stereo input to mono.
-- Parametric, low shelf, and high shelf filters don't do anything when "cutting" (when the peak gain is below 0).
 
 ## Building
 

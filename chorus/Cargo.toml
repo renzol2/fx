@@ -1,11 +1,11 @@
 [package]
-name = "vibrato"
-version = "0.0.15"
+name = "chorus"
+version = "0.0.4"
 edition = "2021"
 authors = ["Renzo Ledesma <renzol2@illinois.edu>"]
 license = "GPL-3.0-or-later"
-homepage = "https://renzofrog.com"
-description = "A vibrato effect"
+homepage = "https://renzomledesma.me"
+description = "A traditional chorus effect"
 
 [workspace]
 members = ["xtask"]
