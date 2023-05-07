@@ -48,8 +48,9 @@ struct ReverbParams {
 
     #[id = "reverb-type"]
     pub reverb_type: EnumParam<ReverbType>,
-    // TODO: add a switch to toggle between reverbs
-    // TODO: add a parameter for width
+
+    #[id = "width"]
+    pub width: FloatParam,
     // TODO: add a low pass and/or high pass parameter
 }
 
@@ -114,6 +115,10 @@ impl Default for ReverbParams {
             frozen: BoolParam::new("Frozen", false),
 
             reverb_type: EnumParam::new("Type", ReverbType::Freeverb),
+
+            width: FloatParam::new("Width", 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_smoother(SmoothingStyle::Linear(50.0))
+                .with_value_to_string(formatters::v2s_f32_rounded(2)),
         }
     }
 }
@@ -122,6 +127,7 @@ impl Reverb {
     fn update_reverbs(&mut self) {
         let room_size_smoothed = &self.params.room_size.smoothed;
         let damping_smoothed = &self.params.damping.smoothed;
+        let width_smoothed = &self.params.width.smoothed;
 
         // Update reverbs while parameters smooth
         if room_size_smoothed.is_smoothing() {
@@ -132,6 +138,10 @@ impl Reverb {
             self.freeverb.set_damping(damping_smoothed.next());
             self.moorer_reverb.set_damping(damping_smoothed.next());
         }
+        if width_smoothed.is_smoothing() {
+            self.freeverb.set_width(width_smoothed.next());
+            self.moorer_reverb.set_width(width_smoothed.next());
+        }
 
         // Check if we should freeze the reverb
         let frozen = self.params.frozen.value();
@@ -141,7 +151,7 @@ impl Reverb {
 }
 
 impl Plugin for Reverb {
-    const NAME: &'static str = "Reverb v0.0.8";
+    const NAME: &'static str = "Reverb v0.0.9";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
