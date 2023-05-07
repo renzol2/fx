@@ -1,10 +1,35 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use biquad::{BiquadFilterType, StereoBiquadFilter};
+use fx::biquad::{BiquadFilterType, StereoBiquadFilter};
 use nih_plug::prelude::*;
 
-mod biquad;
+/// All possible filter types for this EQ plugin.
+#[derive(Enum, Debug, PartialEq, Eq, Clone, Copy)]
+pub enum BiquadFilterTypeParam {
+    LowPass,
+    HighPass,
+    BandPass,
+    Notch,
+    ParametricEQ,
+    LowShelf,
+    HighShelf,
+}
+
+/// A matching from the filter type parameter to the implementation's filter type.
+/// We're making these separate enums to keep the `fx` crate in pure vanilla Rust with
+/// no external crates (i.e. no `nih-plug`).
+fn eq_type_to_param(filter_type: BiquadFilterTypeParam) -> BiquadFilterType {
+    match filter_type {
+        BiquadFilterTypeParam::LowPass => BiquadFilterType::LowPass,
+        BiquadFilterTypeParam::HighPass => BiquadFilterType::HighPass,
+        BiquadFilterTypeParam::BandPass => BiquadFilterType::BandPass,
+        BiquadFilterTypeParam::Notch => BiquadFilterType::Notch,
+        BiquadFilterTypeParam::ParametricEQ => BiquadFilterType::ParametricEQ,
+        BiquadFilterTypeParam::LowShelf => BiquadFilterType::LowShelf,
+        BiquadFilterTypeParam::HighShelf => BiquadFilterType::HighShelf,
+    }
+}
 
 pub struct Equalizer {
     params: Arc<EqualizerParams>,
@@ -24,7 +49,7 @@ struct EqualizerParams {
     pub q: FloatParam,
 
     #[id = "filter-type"]
-    pub filter_type: EnumParam<BiquadFilterType>,
+    pub filter_type: EnumParam<BiquadFilterTypeParam>,
 }
 
 impl Default for Equalizer {
@@ -93,18 +118,18 @@ impl EqualizerParams {
             .with_smoother(SmoothingStyle::Logarithmic(20.0))
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
-            filter_type: EnumParam::new("Type", BiquadFilterType::LowPass).with_callback(Arc::new(
-                {
+            filter_type: EnumParam::new("Type", BiquadFilterTypeParam::LowPass).with_callback(
+                Arc::new({
                     let should_update_filter = should_update_filter.clone();
                     move |_| should_update_filter.store(true, Ordering::SeqCst)
-                },
-            )),
+                }),
+            ),
         }
     }
 }
 
 impl Plugin for Equalizer {
-    const NAME: &'static str = "Equalizer v0.0.12";
+    const NAME: &'static str = "Equalizer v0.0.13";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -169,7 +194,8 @@ impl Plugin for Equalizer {
 
             let gain = self.params.gain.smoothed.next();
             let gain_db = util::gain_to_db(gain);
-            self.biquad.set_biquads(filter_type, fc, q, gain_db);
+            self.biquad
+                .set_biquads(eq_type_to_param(filter_type), fc, q, gain_db);
         }
 
         for mut channel_samples in buffer.iter_samples() {

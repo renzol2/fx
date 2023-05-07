@@ -1,7 +1,6 @@
-use nih_plug::prelude::*;
 use std::f32::consts::PI;
 
-#[derive(Enum, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BiquadFilterType {
     LowPass,
     HighPass,
@@ -92,7 +91,6 @@ impl BiquadFilter {
         let v = 10.0_f32.powf(self.peak_gain.abs() / 20.0);
         let k = (PI * self.fc).tan();
 
-        // FIXME: cut for parametric, low shelf, and high self is not cutting at all
         match self.filter_type {
             BiquadFilterType::LowPass => {
                 let norm = (1.0 + k / self.q + k * k).recip();
