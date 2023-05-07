@@ -1,6 +1,7 @@
 pub mod biquad;
-pub mod delay_line;
 pub mod dc_filter;
+pub mod delay_line;
+pub mod digital;
 pub mod oversampling;
 pub mod waveshapers;
 
