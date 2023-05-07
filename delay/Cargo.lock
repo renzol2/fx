@@ -52,6 +52,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33954243bd79057c2de7338850b85983a44588021f8a5fee574a8888c6de4344"
 
 [[package]]
+name = "approx"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "assert_no_alloc"
 version = "1.1.2"
 source = "git+https://github.com/robbert-vdh/rust-assert-no-alloc.git?branch=feature/nested-permit-forbid#a6fb4f62b9624715291e320ea5f0f70e73b035cf"
@@ -493,6 +502,7 @@ checksum = "0c87e182de0887fd5361989c677c4e8f5000cd9491d6d563161a8f3a5519fc7f"
 name = "delay"
 version = "0.0.2"
 dependencies = [
+ "fx",
  "nih_plug",
 ]
 
@@ -531,6 +541,13 @@ name = "foreign-types-shared"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
+
+[[package]]
+name = "fx"
+version = "0.0.1"
+dependencies = [
+ "approx",
+]
 
 [[package]]
 name = "getrandom"

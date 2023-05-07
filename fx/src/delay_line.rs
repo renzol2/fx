@@ -127,21 +127,6 @@ impl DelayLine {
             % buffer_length as f32;
         let interpolated_sample =
             self.get_cubic_interpolated_value_from_buffer(t, &self.circular_buffer);
-        // let output = self.dry_mix * input + self.wet_mix * self.circular_buffer[self.read_pointer];
-
-        // Write input signal and feedback signal into buffer
-        // self.circular_buffer[wp] =
-        //     input + (self.circular_buffer[self.read_pointer] * self.feedback);
-
-        // FIXME: doesn't prevent zipper noise
-        // Use linear interpolation to calculate output value
-        // let rp = (self.write_pointer as f32 - self.delay_time as f32 + buffer_length as f32 - 3.0)
-        //     % buffer_length as f32;
-        // let fraction = rp.fract();
-        // let prev_sample = rp.floor() as usize;
-        // let next_sample = (prev_sample + 1) % buffer_length;
-        // let interpolated_sample = fraction * self.circular_buffer[next_sample]
-        //     + (1.0 - fraction) * self.circular_buffer[prev_sample];
         let output = self.dry_mix * input + self.wet_mix * interpolated_sample;
 
         // Write input signal and feedback signal into buffer
@@ -161,3 +146,4 @@ impl DelayLine {
         output
     }
 }
+

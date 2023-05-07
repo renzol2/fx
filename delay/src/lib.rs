@@ -1,12 +1,10 @@
+use fx::delay_line::DelayLine;
+use fx::DEFAULT_SAMPLE_RATE;
 use nih_plug::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-mod delay_line;
-use delay_line::DelayLine;
-
 const MAX_DELAY_TIME_SECONDS: f32 = 5.0;
-const DEFAULT_SAMPLE_RATE: usize = 44100;
 
 pub struct Delay {
     params: Arc<DelayParams>,
@@ -98,8 +96,6 @@ impl Plugin for Delay {
 
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    // The first audio IO layout is used as the default. The other layouts may be selected either
-    // explicitly or automatically by the host or the user depending on the plugin API/backend.
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout {
         main_input_channels: NonZeroU32::new(2),
         main_output_channels: NonZeroU32::new(2),
@@ -107,9 +103,6 @@ impl Plugin for Delay {
         aux_input_ports: &[],
         aux_output_ports: &[],
 
-        // Individual ports and the layout as a whole can be named here. By default these names
-        // are generated as needed. This layout will be called 'Stereo', while a layout with
-        // only one input and output channel would be called 'Mono'.
         names: PortNames::const_default(),
     }];
 
@@ -118,13 +111,7 @@ impl Plugin for Delay {
 
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
-    // If the plugin can send or receive SysEx messages, it can define a type to wrap around those
-    // messages here. The type implements the `SysExMessage` trait, which allows conversion to and
-    // from plain byte buffers.
     type SysExMessage = ();
-    // More advanced plugins can use this to run expensive background tasks. See the field's
-    // documentation for more information. `()` means that the plugin does not have any background
-    // tasks.
     type BackgroundTask = ();
 
     fn params(&self) -> Arc<dyn Params> {
