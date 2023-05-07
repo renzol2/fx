@@ -261,18 +261,6 @@ impl DelayLine {
     }
 
     ///
-    /// Get fractional read time into buffer
-    ///
-    fn get_read_time(&self, lfo_phase: f32, lfo_width: f32) -> f32 {
-        let phase_component = 2.0 * PI * lfo_phase;
-        let current_delay = lfo_width * (0.5 + 0.5 * phase_component.sin());
-        let buffer_len = self.circular_buffer.len() as f32;
-
-        self.write_pointer as f32 - (current_delay * self.sample_rate as f32) as f32 + buffer_len
-            - 3.0
-    }
-
-    ///
     /// Calculates value at time `t` using cubic interpolation.
     ///
     fn get_cubic_interpolated_value_from_buffer(&self, t: f32) -> f32 {
