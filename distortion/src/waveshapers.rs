@@ -169,7 +169,7 @@ pub fn get_wavefolder_output(drive: f32, input_sample: f32) -> f32 {
     (1. - 0.3 * drive) * wet
 }
 
-pub fn process_sample(distortion_type: &DistortionType, drive: f32, input_sample: f32) -> f32 {
+pub fn distort_sample(distortion_type: &DistortionType, drive: f32, input_sample: f32) -> f32 {
     match distortion_type {
         DistortionType::Saturation => get_saturator_output(drive, input_sample),
         DistortionType::HardClipping => get_hard_clipper_output(drive, input_sample),

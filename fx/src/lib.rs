@@ -1,5 +1,7 @@
 pub mod biquad;
 
+pub const DEFAULT_SAMPLE_RATE: usize = 44_100;
+
 #[cfg(test)]
 mod tests {
     use super::*;
