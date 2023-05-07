@@ -4,14 +4,10 @@ use std::sync::Arc;
 pub mod waveshapers;
 use waveshapers::*;
 
-pub mod dc_filter;
-use dc_filter::DcFilter;
-
-pub mod oversampling;
-use oversampling::HalfbandFilter;
-
 use fx::{
     biquad::{BiquadFilterType, StereoBiquadFilter},
+    dc_filter::DcFilter,
+    oversampling::HalfbandFilter,
     DEFAULT_SAMPLE_RATE,
 };
 
@@ -148,7 +144,7 @@ impl Default for DistortionParams {
 }
 
 impl Plugin for Distortion {
-    const NAME: &'static str = "Distortion v0.1.3";
+    const NAME: &'static str = "Distortion v0.1.4";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";

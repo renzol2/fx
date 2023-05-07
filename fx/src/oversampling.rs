@@ -60,7 +60,6 @@ struct AllpassFilterCascade {
 impl AllpassFilterCascade {
     fn process(&mut self, input_sample: f32) -> f32 {
         let mut output = input_sample;
-        nih_plug::nih_debug_assert!(self.filter_count <= self.allpass_filters.len());
         for i in 0..self.filter_count {
             output = self.allpass_filters[i].process(output);
         }
