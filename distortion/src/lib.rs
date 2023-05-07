@@ -1,15 +1,60 @@
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
-pub mod waveshapers;
-use waveshapers::*;
-
 use fx::{
     biquad::{BiquadFilterType, StereoBiquadFilter},
     dc_filter::DcFilter,
     oversampling::HalfbandFilter,
+    waveshapers::*,
     DEFAULT_SAMPLE_RATE,
 };
+
+/// Distortion algorithms available in plugin
+#[derive(Enum, Debug, PartialEq, Eq)]
+pub enum DistortionType {
+    #[id = "saturation"]
+    #[name = "Saturation"]
+    Saturation,
+
+    #[id = "hard-clipping"]
+    #[name = "Hard clipping"]
+    HardClipping,
+
+    #[id = "fuzzy-rectifier"]
+    #[name = "Fuzzy rectifier"]
+    FuzzyRectifier,
+
+    #[id = "shockley-diode-rectifier"]
+    #[name = "Diode rectifier"]
+    ShockleyDiodeRectifier,
+
+    #[id = "dropout"]
+    #[name = "Dropout"]
+    Dropout,
+
+    #[id = "double-soft-clipper"]
+    #[name = "Double soft clipper"]
+    DoubleSoftClipper,
+
+    #[id = "wavefolding"]
+    #[name = "Wavefolding"]
+    Wavefolding,
+}
+
+/// Process input sample through waveshaper algorithm of specified type
+pub fn distort_sample(distortion_type: &DistortionType, drive: f32, input_sample: f32) -> f32 {
+    match distortion_type {
+        DistortionType::Saturation => get_saturator_output(drive, input_sample),
+        DistortionType::HardClipping => get_hard_clipper_output(drive, input_sample),
+        DistortionType::FuzzyRectifier => get_fuzzy_rectifier_output(drive, input_sample),
+        DistortionType::ShockleyDiodeRectifier => {
+            get_shockley_diode_rectifier_output(drive, input_sample)
+        }
+        DistortionType::Dropout => get_dropout_output(drive, input_sample),
+        DistortionType::DoubleSoftClipper => get_double_soft_clipper_output(drive, input_sample),
+        DistortionType::Wavefolding => get_wavefolder_output(drive, input_sample),
+    }
+}
 
 const FILTER_CUTOFF_HZ: f32 = 8000.0;
 const OVERSAMPLING_FACTOR: usize = 4;
@@ -80,22 +125,15 @@ impl Default for Distortion {
 impl Default for DistortionParams {
     fn default() -> Self {
         Self {
-            // This gain is stored as linear gain. NIH-plug comes with useful conversion functions
-            // to treat these kinds of parameters as if we were dealing with decibels. Storing this
-            // as decibels is easier to work with, but requires a conversion for every sample.
             input_gain: FloatParam::new(
                 "Input Gain",
                 util::db_to_gain(0.0),
                 FloatRange::Skewed {
                     min: util::db_to_gain(-30.0),
                     max: util::db_to_gain(30.0),
-                    // This makes the range appear as if it was linear when displaying the values as
-                    // decibels
                     factor: FloatRange::gain_skew_factor(-30.0, 30.0),
                 },
             )
-            // Because the gain parameter is stored as linear gain instead of storing the value as
-            // decibels, we need logarithmic smoothing
             .with_smoother(SmoothingStyle::Logarithmic(50.0))
             .with_unit(" dB")
             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
@@ -282,23 +320,16 @@ impl ClapPlugin for Distortion {
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
 
-    // Don't forget to change these features
     const CLAP_FEATURES: &'static [ClapFeature] = &[
         ClapFeature::AudioEffect,
         ClapFeature::Stereo,
-        ClapFeature::Mono,
-        ClapFeature::Utility,
         ClapFeature::Distortion,
     ];
 }
 
 impl Vst3Plugin for Distortion {
     const VST3_CLASS_ID: [u8; 16] = *b"renzol2_distortn";
-
-    // And don't forget to change these categories, see the docstring on `VST3_CATEGORIES` for more
-    // information
     const VST3_CATEGORIES: &'static str = "Fx|Distortion";
 }
 
-// nih_export_clap!(Distortion);
 nih_export_vst3!(Distortion);
