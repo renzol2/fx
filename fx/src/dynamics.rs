@@ -1,3 +1,6 @@
+// Code ported from Juan Gil's compressor-expander implementation:
+// https://github.com/juandagilc/Audio-Effects/blob/master/Compressor-Expander/Source/PluginProcessor.cpp
+
 use std::f32::consts::E;
 
 const AVERAGE_FACTOR: f32 = 0.9999;
