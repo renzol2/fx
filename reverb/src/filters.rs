@@ -103,3 +103,23 @@ impl Comb {
         output
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::DelayLine;
+
+    #[test]
+    fn length_10() {
+        let length: usize = 10;
+        let mut line = DelayLine::new(length);
+        for i in 0..length {
+            assert_eq!(line.read(), 0.);
+            line.write_and_advance(i as f32);
+        }
+
+        for i in 0..length {
+            assert_eq!(line.read(), i as f32);
+            line.write_and_advance(0.);
+        }
+    }
+}
