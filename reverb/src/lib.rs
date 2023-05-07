@@ -1,13 +1,6 @@
-mod filters;
-mod freeverb;
-mod moorer_verb;
-
-use freeverb::Freeverb;
-use moorer_verb::MoorerReverb;
+use fx::{freeverb::Freeverb, moorer_verb::MoorerReverb, DEFAULT_SAMPLE_RATE};
 use nih_plug::prelude::*;
 use std::sync::Arc;
-
-const DEFAULT_SAMPLE_RATE: usize = 44_100;
 
 #[derive(Enum, Debug, PartialEq, Eq)]
 pub enum ReverbType {
@@ -56,7 +49,7 @@ struct ReverbParams {
 
 impl Default for Reverb {
     fn default() -> Self {
-        // default sample rates are set later during initialization
+        // actual sample rates are set later during initialization
         Self {
             params: Arc::new(ReverbParams::default()),
             freeverb: Freeverb::new(DEFAULT_SAMPLE_RATE),
@@ -151,7 +144,7 @@ impl Reverb {
 }
 
 impl Plugin for Reverb {
-    const NAME: &'static str = "Reverb v0.0.9";
+    const NAME: &'static str = "Reverb v0.0.10";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -247,7 +240,7 @@ impl Plugin for Reverb {
 
 impl ClapPlugin for Reverb {
     const CLAP_ID: &'static str = "https://renzomledesma.me";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("Algorithmic reverb effects");
+    const CLAP_DESCRIPTION: Option<&'static str> = Some("Classic algorithmic reverb effects");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
 
@@ -261,11 +254,8 @@ impl ClapPlugin for Reverb {
 impl Vst3Plugin for Reverb {
     const VST3_CLASS_ID: [u8; 16] = *b"renzol2___reverb";
 
-    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[
-        Vst3SubCategory::Fx,
-        Vst3SubCategory::Dynamics,
-        Vst3SubCategory::Reverb,
-    ];
+    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
+        &[Vst3SubCategory::Fx, Vst3SubCategory::Reverb];
 }
 
 // nih_export_clap!(Reverb);
