@@ -1,6 +1,6 @@
 [package]
 name = "chorus"
-version = "0.1.0"
+version = "0.0.4"
 edition = "2021"
 authors = ["Renzo Ledesma <renzol2@illinois.edu>"]
 license = "GPL-3.0-or-later"
@@ -14,6 +14,7 @@ members = ["xtask"]
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
+fx = { path = "../fx" }
 # Remove the `assert_process_allocs` feature to allow allocations on the audio
 # thread in debug builds.
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }

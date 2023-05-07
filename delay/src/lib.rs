@@ -191,8 +191,8 @@ impl Plugin for Delay {
             let sample_l = *channel_samples.get_mut(0).unwrap();
             let sample_r = *channel_samples.get_mut(1).unwrap();
 
-            let processed_l = self.delay_line_l.process(sample_l);
-            let processed_r = self.delay_line_r.process(sample_r);
+            let processed_l = self.delay_line_l.process_with_delay(sample_l);
+            let processed_r = self.delay_line_r.process_with_delay(sample_r);
 
             *channel_samples.get_mut(0).unwrap() = processed_l;
             *channel_samples.get_mut(1).unwrap() = processed_r;

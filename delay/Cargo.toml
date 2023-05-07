@@ -1,6 +1,6 @@
 [package]
 name = "delay"
-version = "0.0.2"
+version = "0.0.4"
 edition = "2021"
 authors = ["Renzo Ledesma <renzol2@illinois.edu>"]
 license = "GPL-3.0-or-later"
