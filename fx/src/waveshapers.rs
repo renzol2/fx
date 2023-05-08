@@ -14,7 +14,7 @@ pub fn get_saturator_output(drive: f32, input_sample: f32) -> f32 {
 
 /// Processes an input sample through a standard, static hard clipper, such
 /// that the magnitude of the input sample will never surpass the threshold.
-pub fn get_hard_clipper_output(input_sample: f32, threshold: f32) -> f32 {
+pub fn get_hard_clipper_output(threshold: f32, input_sample: f32) -> f32 {
     input_sample.clamp(-threshold, threshold)
 }
 
@@ -132,7 +132,7 @@ pub fn get_double_soft_clipper_output(drive: f32, input_sample: f32) -> f32 {
 
 /// Processes an input sample through a sinusoidal wavefolder.
 /// The drive parameter increases the frequency of the sine curve, causing more distortion.
-/// 
+///
 /// Desmos: https://www.desmos.com/calculator/zwffvndj7j
 pub fn get_wavefolder_output(drive: f32, input_sample: f32) -> f32 {
     let k = 1. + (drive * 3.);
@@ -168,7 +168,11 @@ mod tests {
             let drive = test_num as f32 / num_drive_tests as f32;
             // Use approx to avoid errors from floating point arithmetic
             assert!(relative_eq!(get_saturator_output(drive, 0.), 0.));
-            assert!(relative_eq!(get_saturating_hard_clipper_output(drive, 0.), 0.));
+            assert!(relative_eq!(
+                get_saturating_hard_clipper_output(drive, 0.),
+                0.
+            ));
+            assert!(relative_eq!(get_hard_clipper_output(drive, 0.), 0.));
             assert!(relative_eq!(get_fuzzy_rectifier_output(drive, 0.), 0.));
             assert!(relative_eq!(
                 get_shockley_diode_rectifier_output(drive, 0.),
@@ -177,6 +181,18 @@ mod tests {
             assert!(relative_eq!(get_dropout_output(drive, 0.), 0.));
             assert!(relative_eq!(get_double_soft_clipper_output(drive, 0.), 0.));
             assert!(relative_eq!(get_wavefolder_output(drive, 0.), 0.));
+        }
+    }
+
+    #[test]
+    fn hard_clip_clamps_correctly() {
+        let threshold = 1.2;
+        let max_range = 2.0;
+        let num_values = 500;
+        for i in 0..num_values {
+            let input = (i as f32 / num_values as f32) * (max_range * 2.) - max_range;
+            let output = get_hard_clipper_output(threshold, input);
+            assert!(output.abs() <= threshold);
         }
     }
 }
