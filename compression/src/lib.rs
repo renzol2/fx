@@ -57,7 +57,7 @@ impl Default for CompressionParams {
                 "Threshold",
                 0.0,
                 FloatRange::Linear {
-                    min: -60.0,
+                    min: -25.0,
                     max: 0.0,
                 },
             )
@@ -71,7 +71,7 @@ impl Default for CompressionParams {
                 FloatRange::Skewed {
                     min: 1.0,
                     max: 20.0,
-                    factor: FloatRange::skew_factor(-1.3),
+                    factor: FloatRange::skew_factor(-1.6),
                 },
             )
             .with_unit(":1")
@@ -130,7 +130,7 @@ impl Default for CompressionParams {
 }
 
 impl Plugin for Compression {
-    const NAME: &'static str = "Compression v0.0.3";
+    const NAME: &'static str = "Compression v0.0.6";
     const VENDOR: &'static str = "Renzo Ledesma";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "renzol2@illinois.edu";
@@ -170,6 +170,13 @@ impl Plugin for Compression {
         // function if you do not need it.
         let sample_rate = _buffer_config.sample_rate;
         self.processor.set_sample_rate(sample_rate as usize);
+        self.processor.set_parameters(
+            self.params.threshold.default_plain_value(),
+            self.params.ratio.default_plain_value(),
+            self.params.attack.default_plain_value() / 1000.,
+            self.params.release.default_plain_value() / 1000.,
+            self.params.use_expander.default_plain_value(),
+        );
         true
     }
 
@@ -184,6 +191,7 @@ impl Plugin for Compression {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        // Iterating over each sample to process...
         for mut channel_samples in buffer.iter_samples() {
             // Update processor's parameters
             let threshold = self.params.threshold.smoothed.next();

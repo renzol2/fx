@@ -1,11 +1,14 @@
-// Code ported from Juan Gil's compressor-expander implementation:
-// https://github.com/juandagilc/Audio-Effects/blob/master/Compressor-Expander/Source/PluginProcessor.cpp
-
 use std::f32::consts::E;
 
 const AVERAGE_FACTOR: f32 = 0.9999;
 
-/// A dynamic range processor.
+/// FIXME: Use with extreme caution and low volumes.
+/// I probably implemented this wrong, because Juan Gil's JUCE version sounds fine but this does not.
+/// 
+/// A dynamic range processor capable of compression and expansion.
+///
+/// Code ported from Juan Gil's compressor-expander implementation, which is licensed under GNU:
+// https://github.com/juandagilc/Audio-Effects/blob/master/Compressor-Expander/Source/PluginProcessor.cpp
 pub struct DynamicRangeProcessor {
     sample_rate: usize,
     input_level: f32,
@@ -40,6 +43,16 @@ impl DynamicRangeProcessor {
         }
     }
 
+    ///
+    /// Update the parameters of the dynamic range processor.
+    ///
+    /// # Arguments
+    /// * `threshold` - the threshold at what level to enact dynamic range processing, in dBFS
+    /// * `ratio` - the amount of attenuation after the input signal crosses the threshold
+    /// * `attack` - the amount of time to reach full attenuation, in seconds
+    /// * `release` - the amount of time to stop attenuation, in seconds
+    /// * `is_expander` - when false, compress when input exceeds threshold; otherwise, expand when input falls below threshold
+    ///
     pub fn set_parameters(
         &mut self,
         threshold: f32,
@@ -60,18 +73,19 @@ impl DynamicRangeProcessor {
     }
 
     fn calculate_alpha_time(&self, tau: f32) -> f32 {
-        (-1. / (0.001 * self.sample_rate as f32 * tau)).exp()
-    }
-
-    fn calculate_alpha_time_jgdc(&self, tau: f32) -> f32 {
-        E.recip().powf((self.sample_rate as f32).recip() / tau)
+        if tau == 0. {
+            tau
+        } else {
+            E.recip().powf((self.sample_rate as f32).recip() / tau)
+        }
     }
 
     ///
     /// Convert stereo (2-channel) buffer to mono
     ///
     pub fn mix_down_input(buffer: &Vec<(f32, f32)>) -> Vec<f32> {
-        buffer.iter().map(|x| (x.0 + x.1) / 2.).collect()
+        let mixed_down: Vec<f32> = buffer.into_iter().map(|x| (x.0 + x.1) / 2.).collect();
+        mixed_down
     }
 
     /// Calculates control voltage to apply to input based on
@@ -157,8 +171,8 @@ impl DynamicRangeProcessor {
     pub fn process_input_frame(&mut self, input_frame: (f32, f32), makeup_gain: f32) -> (f32, f32) {
         // Get internal parameters
         let threshold = self.threshold;
-        let alpha_attack = self.calculate_alpha_time_jgdc(self.attack);
-        let alpha_release = self.calculate_alpha_time_jgdc(self.release);
+        let alpha_attack = self.calculate_alpha_time(self.attack);
+        let alpha_release = self.calculate_alpha_time(self.release);
 
         let input = (input_frame.0 + input_frame.1) * 0.5;
 
@@ -176,7 +190,7 @@ impl DynamicRangeProcessor {
         };
 
         if self.is_expander {
-            // Expand
+            // Compute gain below threshold (expansion)
             self.yg = if self.xg > threshold {
                 self.xg
             } else {
@@ -185,13 +199,14 @@ impl DynamicRangeProcessor {
 
             self.xl = self.xg - self.yg;
 
+            // Ballistics; apply attack or release
             self.yl = if self.xl < self.yl_prev {
                 alpha_attack * self.yl_prev + (1. - alpha_attack) * self.xl
             } else {
                 alpha_release * self.yl_prev + (1. - alpha_release) * self.xl
             };
         } else {
-            // Compress
+            // Compute gain above threshold (compression)
             self.yg = if self.xg < threshold {
                 self.xg
             } else {
@@ -200,6 +215,7 @@ impl DynamicRangeProcessor {
 
             self.xl = self.xg - self.yg;
 
+            // Ballistics; apply attack or release
             self.yl = if self.xl > self.yl_prev {
                 alpha_attack * self.yl_prev + (1. - alpha_attack) * self.xl
             } else {
