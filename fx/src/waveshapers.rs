@@ -12,11 +12,17 @@ pub fn get_saturator_output(drive: f32, input_sample: f32) -> f32 {
     (1. - 0.3 * drive) * wet
 }
 
-/// Processes an input sample through a static hard clipper.
+/// Processes an input sample through a standard, static hard clipper, such
+/// that the magnitude of the input sample will never surpass the threshold.
+pub fn get_hard_clipper_output(input_sample: f32, threshold: f32) -> f32 {
+    input_sample.clamp(-threshold, threshold)
+}
+
+/// Processes an input sample through a saturating, static hard clipper.
 /// Drive parameter increases distortion and reduces threshold.
 ///
 /// Desmos visualization of parameterization: https://www.desmos.com/calculator/ljssh5iqce
-pub fn get_hard_clipper_output(drive: f32, input_sample: f32) -> f32 {
+pub fn get_saturating_hard_clipper_output(drive: f32, input_sample: f32) -> f32 {
     let threshold = 1. - 0.5 * drive;
     let slope = 1. + 0.5 * drive;
     // Drive input into hard clipper for more distortion
@@ -55,7 +61,7 @@ pub fn get_shockley_diode_rectifier_output(drive: f32, input_sample: f32) -> f32
     let shockley_diode_output =
         (0.4 * drive + 0.1) * (E.powf((2. + 2. * drive) * input_sample) - 1.);
     // Run hard clipper in series to prevent clipping
-    get_hard_clipper_output(drive, shockley_diode_output)
+    get_saturating_hard_clipper_output(drive, shockley_diode_output)
 }
 
 /// Processes an input sample through a dropout curve modeled after analog circuit response, where
@@ -79,7 +85,7 @@ pub fn get_dropout_output(drive: f32, input_sample: f32) -> f32 {
         } else {
             x - b + (b / drive).powi(3)
         };
-        get_hard_clipper_output(drive, output)
+        get_saturating_hard_clipper_output(drive, output)
     }
 }
 
@@ -162,7 +168,7 @@ mod tests {
             let drive = test_num as f32 / num_drive_tests as f32;
             // Use approx to avoid errors from floating point arithmetic
             assert!(relative_eq!(get_saturator_output(drive, 0.), 0.));
-            assert!(relative_eq!(get_hard_clipper_output(drive, 0.), 0.));
+            assert!(relative_eq!(get_saturating_hard_clipper_output(drive, 0.), 0.));
             assert!(relative_eq!(get_fuzzy_rectifier_output(drive, 0.), 0.));
             assert!(relative_eq!(
                 get_shockley_diode_rectifier_output(drive, 0.),
