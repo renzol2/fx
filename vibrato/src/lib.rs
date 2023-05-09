@@ -1,12 +1,11 @@
-use fx::{delay_line::StereoDelay, DEFAULT_SAMPLE_RATE};
+use fx::{
+    delay_line::StereoDelay, DEFAULT_SAMPLE_RATE, FLUTTER_MAX_FREQUENCY_RATIO,
+    FLUTTER_MAX_LFO_FREQUENCY, MAX_DELAY_TIME_SECONDS, WOW_MAX_FREQUENCY_RATIO,
+    WOW_MAX_LFO_FREQUENCY,
+};
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
-const MAX_DELAY_TIME_SECONDS: f32 = 5.0;
-const WOW_MAX_FREQUENCY_RATIO: f32 = 0.123;
-const WOW_MAX_LFO_FREQUENCY: f32 = 0.816;
-const FLUTTER_MAX_FREQUENCY_RATIO: f32 = 0.02;
-const FLUTTER_MAX_LFO_FREQUENCY: f32 = 1.79;
 const PARAMETER_MINIMUM: f32 = 0.01;
 
 pub struct Vibrato {
